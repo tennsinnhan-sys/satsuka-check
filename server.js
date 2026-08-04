@@ -166,8 +166,7 @@ function matchListAgainstGroups(tokens, groups) {
     }
   }
 
-  unique.sort((a, b) => (a.reading || a.name).localeCompare(b.reading || b.name, "ja"));
-
+  // 五十音順ではなく、入力した順番(=タイムテーブル順であることが多い)をそのまま保持する
   return { matched: unique, notFound };
 }
 
@@ -214,25 +213,29 @@ app.post("/api/lookup", async (req, res) => {
     const groups = await getGroups();
 
     // グループ名がページ本文にそのまま含まれるかで判定(サイト構造に依存しない汎用方式)
+    // ページ内で最初に登場する位置を記録し、その順番で並べる(タイムテーブル順に近づくことが多いため)
     const matched = [];
     for (const g of groups) {
-      if (g.name && g.name.length >= 2 && pageText.includes(g.name)) {
-        matched.push(g);
+      if (g.name && g.name.length >= 2) {
+        const pos = pageText.indexOf(g.name);
+        if (pos !== -1) {
+          matched.push({ ...g, _pos: pos });
+        }
       }
     }
 
-    // 重複除去(同名グループが複数レコードある場合は最初の1件を採用)
+    matched.sort((a, b) => a._pos - b._pos);
+
+    // 重複除去(同名グループが複数レコードある場合は、ページ内で先に出現した1件を採用)
     const seen = new Set();
     const unique = [];
     for (const m of matched) {
       if (!seen.has(m.name)) {
         seen.add(m.name);
-        unique.push(m);
+        const { _pos, ...rest } = m;
+        unique.push(rest);
       }
     }
-
-    // 読み仮名(かな)で五十音順に並べ替え
-    unique.sort((a, b) => (a.reading || a.name).localeCompare(b.reading || b.name, "ja"));
 
     res.json({
       ok: true,

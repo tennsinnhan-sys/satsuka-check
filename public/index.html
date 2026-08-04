@@ -224,7 +224,7 @@
   }
 
   .card .query-note {
-    grid-column: 1;
+    grid-column: 2;
     color: #6b6f82;
     font-size: 11px;
     margin-top: 2px;
@@ -281,22 +281,85 @@
     border-radius: 10px;
     padding: 16px 18px;
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto 1fr auto;
     gap: 4px 16px;
     align-items: center;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+  .card.dragging {
+    opacity: 0.35;
+  }
+  .card.drag-over {
+    border-color: var(--flash);
+  }
+
+  .order-ctrl {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    align-self: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding-right: 14px;
+    border-right: 1px solid var(--line);
+    margin-right: 2px;
+  }
+  .order-ctrl button {
+    background: none;
+    border: none;
+    color: var(--ink-dim);
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    padding: 5px;
+    border-radius: 4px;
+  }
+  .order-ctrl button:hover:not(:disabled) {
+    color: var(--flash);
+    background: rgba(255,179,71,0.10);
+  }
+  .order-ctrl button:disabled {
+    opacity: 0.2;
+    cursor: default;
+  }
+  .order-ctrl .handle {
+    cursor: grab;
+    color: #565a6b;
+    font-size: 15px;
+    padding: 3px 0;
+    letter-spacing: -1px;
+  }
+  .order-ctrl .handle:active { cursor: grabbing; }
+
+  .order-num {
+    display: inline-block;
+    color: var(--flash);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 12.5px;
+    margin-right: 8px;
+  }
+
+  .reorder-hint {
+    color: var(--ink-dim);
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    margin: -4px 2px 14px;
   }
 
   .card .name {
+    grid-column: 2;
     font-weight: 700;
     font-size: 16px;
   }
   .card .reading {
     color: var(--ink-dim);
     font-size: 12px;
-    grid-column: 1;
+    grid-column: 2;
   }
   .card .note {
-    grid-column: 1;
+    grid-column: 2;
     color: var(--ink-dim);
     font-size: 12.5px;
     margin-top: 4px;
@@ -305,7 +368,8 @@
   .chips {
     display: flex;
     gap: 6px;
-    grid-row: span 2;
+    grid-column: 3;
+    grid-row: 1 / -1;
     align-self: start;
   }
   .chip {
@@ -342,7 +406,19 @@
 
   @media (max-width: 480px) {
     .card { grid-template-columns: 1fr; }
-    .chips { grid-row: auto; margin-top: 8px; }
+    .order-ctrl {
+      grid-column: 1;
+      grid-row: auto;
+      flex-direction: row;
+      justify-content: flex-start;
+      border-right: none;
+      border-bottom: 1px solid var(--line);
+      padding-right: 0;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+    }
+    .card .name, .card .reading, .card .note { grid-column: 1; }
+    .chips { grid-column: 1; grid-row: auto; margin-top: 8px; }
   }
 </style>
 </head>
@@ -413,10 +489,19 @@
     statusEl.className = '';
     statusEl.textContent = '';
     resultsEl.innerHTML = '';
+    currentGroups = [];
+    currentNotFound = [];
+    currentPageTitle = '';
   }
 
   tabUrl.addEventListener('click', () => switchTab('url'));
   tabList.addEventListener('click', () => switchTab('list'));
+
+  // ---- 検索結果の状態(並べ替え可能) ----
+  let currentGroups = [];
+  let currentNotFound = [];
+  let currentPageTitle = '';
+  let dragSrcIndex = null;
 
   function chipInfo(value) {
     if (value === '可') return { cls: 'ok', label: '可' };
@@ -425,13 +510,18 @@
     return { cls: 'unk', label: '不明' };
   }
 
-  function renderCard(g) {
+  function renderCard(g, index, total) {
     const photo = chipInfo(g.photo);
     const video = chipInfo(g.video);
     const showQueryNote = g.matchType === 'fuzzy' && g.query && g.query !== g.name;
     return `
-      <div class="card">
-        <div class="name">${escapeHtml(g.name)}</div>
+      <div class="card" draggable="true" data-index="${index}">
+        <div class="order-ctrl">
+          <button type="button" data-action="up" data-index="${index}" ${index === 0 ? 'disabled' : ''} title="上へ">▲</button>
+          <span class="handle" title="ドラッグで並べ替え">⠿</span>
+          <button type="button" data-action="down" data-index="${index}" ${index === total - 1 ? 'disabled' : ''} title="下へ">▼</button>
+        </div>
+        <div class="name"><span class="order-num">${index + 1}</span>${escapeHtml(g.name)}</div>
         <div class="reading">${escapeHtml(g.reading || '')}</div>
         ${showQueryNote ? `<div class="query-note">入力: 「${escapeHtml(g.query)}」に近い名前で一致(表記ゆれの可能性)</div>` : ''}
         ${g.note ? `<div class="note">${escapeHtml(g.note)}</div>` : ''}
@@ -451,6 +541,83 @@
         <div class="tags">${list.map((t) => `<span>${escapeHtml(t)}</span>`).join('')}</div>
       </div>
     `;
+  }
+
+  function draw() {
+    if (currentGroups.length === 0 && currentNotFound.length === 0) {
+      resultsEl.innerHTML = `<div class="empty">一致するグループが見つかりませんでした。<br>表記ゆれ、または未登録グループの可能性があります。</div>`;
+      return;
+    }
+
+    const head = `
+      <div class="result-head">
+        <h2>照合結果 (${currentGroups.length})</h2>
+        ${currentPageTitle ? `<div class="page-title">${escapeHtml(currentPageTitle)}</div>` : ''}
+      </div>
+      ${currentGroups.length > 1 ? '<div class="reorder-hint">⠿ をドラッグ、または ▲▼ ボタンでタイムテーブル順に並べ替えできます</div>' : ''}
+    `;
+
+    const cards = currentGroups.length
+      ? `<div class="cards">${currentGroups.map((g, i) => renderCard(g, i, currentGroups.length)).join('')}</div>`
+      : `<div class="empty">一致するグループが見つかりませんでした。</div>`;
+
+    resultsEl.innerHTML = head + cards + renderNotFound(currentNotFound);
+    attachCardEvents();
+  }
+
+  function attachCardEvents() {
+    resultsEl.querySelectorAll('.card').forEach((card) => {
+      card.addEventListener('dragstart', onDragStart);
+      card.addEventListener('dragend', onDragEnd);
+      card.addEventListener('dragover', onDragOver);
+      card.addEventListener('dragleave', onDragLeave);
+      card.addEventListener('drop', onDrop);
+    });
+    resultsEl.querySelectorAll('[data-action]').forEach((btn) => {
+      btn.addEventListener('click', onMoveClick);
+    });
+  }
+
+  function onDragStart(e) {
+    dragSrcIndex = Number(e.currentTarget.dataset.index);
+    e.currentTarget.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(dragSrcIndex));
+  }
+
+  function onDragEnd(e) {
+    e.currentTarget.classList.remove('dragging');
+    resultsEl.querySelectorAll('.card.drag-over').forEach((c) => c.classList.remove('drag-over'));
+  }
+
+  function onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.currentTarget.classList.add('drag-over');
+  }
+
+  function onDragLeave(e) {
+    e.currentTarget.classList.remove('drag-over');
+  }
+
+  function onDrop(e) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    const targetIndex = Number(e.currentTarget.dataset.index);
+    if (dragSrcIndex === null || dragSrcIndex === targetIndex) return;
+    const [moved] = currentGroups.splice(dragSrcIndex, 1);
+    currentGroups.splice(targetIndex, 0, moved);
+    dragSrcIndex = null;
+    draw();
+  }
+
+  function onMoveClick(e) {
+    const btn = e.currentTarget;
+    const index = Number(btn.dataset.index);
+    const target = btn.dataset.action === 'up' ? index - 1 : index + 1;
+    if (target < 0 || target >= currentGroups.length) return;
+    [currentGroups[index], currentGroups[target]] = [currentGroups[target], currentGroups[index]];
+    draw();
   }
 
   function escapeHtml(str) {
@@ -507,19 +674,10 @@
       dbCountEl.textContent = data.dbTotal;
       statusEl.textContent = `照合完了 — DB ${data.dbTotal}件中 ${data.matchedCount}件がページ内に一致`;
 
-      if (data.groups.length === 0) {
-        resultsEl.innerHTML = `<div class="empty">一致するグループが見つかりませんでした。<br>表記ゆれ、または未登録グループの可能性があります。</div>`;
-        return;
-      }
-
-      const head = `
-        <div class="result-head">
-          <h2>照合結果 (${data.groups.length})</h2>
-          <div class="page-title">${escapeHtml(data.pageTitle || '')}</div>
-        </div>
-      `;
-      const cards = `<div class="cards">${data.groups.map(renderCard).join('')}</div>`;
-      resultsEl.innerHTML = head + cards;
+      currentGroups = data.groups;
+      currentNotFound = [];
+      currentPageTitle = data.pageTitle || '';
+      draw();
     } catch (err) {
       statusEl.className = 'error';
       statusEl.textContent = 'エラーが発生しました: ' + err.message;
@@ -557,20 +715,10 @@
       dbCountEl.textContent = data.dbTotal;
       statusEl.textContent = `照合完了 — 入力${data.tokenCount}件中 ${data.matchedCount}件がDBに一致`;
 
-      if (data.groups.length === 0 && data.notFound.length === 0) {
-        resultsEl.innerHTML = `<div class="empty">グループ名を認識できませんでした。</div>`;
-        return;
-      }
-
-      const head = `
-        <div class="result-head">
-          <h2>照合結果 (${data.groups.length})</h2>
-        </div>
-      `;
-      const cards = data.groups.length
-        ? `<div class="cards">${data.groups.map(renderCard).join('')}</div>`
-        : `<div class="empty">一致するグループが見つかりませんでした。</div>`;
-      resultsEl.innerHTML = head + cards + renderNotFound(data.notFound);
+      currentGroups = data.groups;
+      currentNotFound = data.notFound || [];
+      currentPageTitle = '';
+      draw();
     } catch (err) {
       statusEl.className = 'error';
       statusEl.textContent = 'エラーが発生しました: ' + err.message;
