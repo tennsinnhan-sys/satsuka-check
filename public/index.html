@@ -148,6 +148,88 @@
   .stub button.go:hover { transform: translateY(-1px); }
   .stub button.go:disabled { opacity: 0.5; cursor: default; transform: none; }
 
+  /* --- tab switcher --- */
+  .tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .tab {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.03em;
+    padding: 8px 18px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .tab.active {
+    background: rgba(255,179,71,0.12);
+    border-color: var(--flash);
+    color: var(--flash);
+  }
+
+  .stub textarea {
+    flex: 1 1 100%;
+    background: var(--stage-deep);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    color: var(--ink);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.7;
+    outline: none;
+    resize: vertical;
+    min-height: 96px;
+  }
+  .stub textarea::placeholder { color: #565a6b; }
+  .stub textarea:focus { border-color: var(--flash); }
+
+  .stub .list-actions {
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .not-found {
+    margin-top: 26px;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .not-found h3 {
+    margin: 0 0 10px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ink-dim);
+  }
+  .not-found .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .not-found .tags span {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: rgba(239,111,111,0.08);
+    border: 1px solid rgba(239,111,111,0.25);
+    color: var(--ng);
+    padding: 4px 9px;
+    border-radius: 6px;
+  }
+
+  .card .query-note {
+    grid-column: 1;
+    color: #6b6f82;
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
   .perf {
     width: 100%;
     border-top: 1px dashed var(--line);
@@ -278,10 +360,25 @@
       </div>
     </header>
 
+    <div class="tabs">
+      <button type="button" class="tab active" id="tabUrl">チケットURLで照合</button>
+      <button type="button" class="tab" id="tabList">グループ名リストで照合</button>
+    </div>
+
     <form id="lookupForm" autocomplete="off">
       <div class="stub">
         <input type="url" id="urlInput" placeholder="https://example.com/event/xxxxx" required />
         <button class="go" id="goBtn" type="submit">照合する</button>
+        <div class="perf">SEAT — GENERAL &nbsp;/&nbsp; ADMIT ONE &nbsp;/&nbsp; NO REFUND</div>
+      </div>
+    </form>
+
+    <form id="listForm" autocomplete="off" style="display:none;">
+      <div class="stub">
+        <textarea id="listInput" placeholder="グループ名を改行または &quot; / &quot; 区切りで貼り付け&#10;&#10;例:&#10;JAPANARIZM / AKANECLUB. / ルルネージュ&#10;yosugala&#10;PRSMIN"></textarea>
+        <div class="list-actions">
+          <button class="go" id="listGoBtn" type="submit">照合する</button>
+        </div>
         <div class="perf">SEAT — GENERAL &nbsp;/&nbsp; ADMIT ONE &nbsp;/&nbsp; NO REFUND</div>
       </div>
     </form>
@@ -297,10 +394,29 @@
   const form = document.getElementById('lookupForm');
   const urlInput = document.getElementById('urlInput');
   const goBtn = document.getElementById('goBtn');
+  const listForm = document.getElementById('listForm');
+  const listInput = document.getElementById('listInput');
+  const listGoBtn = document.getElementById('listGoBtn');
+  const tabUrl = document.getElementById('tabUrl');
+  const tabList = document.getElementById('tabList');
   const statusEl = document.getElementById('status');
   const resultsEl = document.getElementById('results');
   const dbCountEl = document.getElementById('dbCount');
   const refreshBtn = document.getElementById('refreshBtn');
+
+  function switchTab(mode) {
+    const isUrl = mode === 'url';
+    tabUrl.classList.toggle('active', isUrl);
+    tabList.classList.toggle('active', !isUrl);
+    form.style.display = isUrl ? '' : 'none';
+    listForm.style.display = isUrl ? 'none' : '';
+    statusEl.className = '';
+    statusEl.textContent = '';
+    resultsEl.innerHTML = '';
+  }
+
+  tabUrl.addEventListener('click', () => switchTab('url'));
+  tabList.addEventListener('click', () => switchTab('list'));
 
   function chipInfo(value) {
     if (value === '可') return { cls: 'ok', label: '可' };
@@ -312,15 +428,27 @@
   function renderCard(g) {
     const photo = chipInfo(g.photo);
     const video = chipInfo(g.video);
+    const showQueryNote = g.matchType === 'fuzzy' && g.query && g.query !== g.name;
     return `
       <div class="card">
         <div class="name">${escapeHtml(g.name)}</div>
         <div class="reading">${escapeHtml(g.reading || '')}</div>
+        ${showQueryNote ? `<div class="query-note">入力: 「${escapeHtml(g.query)}」に近い名前で一致(表記ゆれの可能性)</div>` : ''}
         ${g.note ? `<div class="note">${escapeHtml(g.note)}</div>` : ''}
         <div class="chips">
           <span class="chip ${photo.cls}">静止画 ${photo.label}</span>
           <span class="chip ${video.cls}">動画 ${video.label}</span>
         </div>
+      </div>
+    `;
+  }
+
+  function renderNotFound(list) {
+    if (!list || list.length === 0) return '';
+    return `
+      <div class="not-found">
+        <h3>DBに見つからなかった名前 (${list.length})</h3>
+        <div class="tags">${list.map((t) => `<span>${escapeHtml(t)}</span>`).join('')}</div>
       </div>
     `;
   }
@@ -398,6 +526,57 @@
     } finally {
       goBtn.disabled = false;
       goBtn.textContent = '照合する';
+    }
+  });
+
+  listForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = listInput.value.trim();
+    if (!text) return;
+
+    listGoBtn.disabled = true;
+    listGoBtn.textContent = '照合中…';
+    statusEl.className = '';
+    statusEl.textContent = 'リストを解析して照合しています…';
+    resultsEl.innerHTML = '';
+
+    try {
+      const res = await fetch('/api/lookup-list', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+
+      if (!data.ok) {
+        statusEl.className = 'error';
+        statusEl.textContent = data.error || '照合に失敗しました';
+        return;
+      }
+
+      dbCountEl.textContent = data.dbTotal;
+      statusEl.textContent = `照合完了 — 入力${data.tokenCount}件中 ${data.matchedCount}件がDBに一致`;
+
+      if (data.groups.length === 0 && data.notFound.length === 0) {
+        resultsEl.innerHTML = `<div class="empty">グループ名を認識できませんでした。</div>`;
+        return;
+      }
+
+      const head = `
+        <div class="result-head">
+          <h2>照合結果 (${data.groups.length})</h2>
+        </div>
+      `;
+      const cards = data.groups.length
+        ? `<div class="cards">${data.groups.map(renderCard).join('')}</div>`
+        : `<div class="empty">一致するグループが見つかりませんでした。</div>`;
+      resultsEl.innerHTML = head + cards + renderNotFound(data.notFound);
+    } catch (err) {
+      statusEl.className = 'error';
+      statusEl.textContent = 'エラーが発生しました: ' + err.message;
+    } finally {
+      listGoBtn.disabled = false;
+      listGoBtn.textContent = '照合する';
     }
   });
 

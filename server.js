@@ -98,6 +98,79 @@ async function getGroups(forceRefresh = false) {
   return groupCache;
 }
 
+// ---- グループ名リスト照合用のヘルパー ----
+
+function normalizeStr(s) {
+  return (s || "").normalize("NFKC").trim();
+}
+
+// 改行、または前後にスペースを伴う " / " で分割する
+// (例: "LilyS/ash" のようにスペースなしのスラッシュを含む名前は壊さない)
+function splitGroupList(text) {
+  return text
+    .split(/\r?\n/)
+    .flatMap((line) => line.split(/\s+\/\s+/))
+    .map((s) => normalizeStr(s))
+    .filter(Boolean);
+}
+
+function matchListAgainstGroups(tokens, groups) {
+  const results = [];
+  const notFound = [];
+
+  for (const token of tokens) {
+    const normToken = normalizeStr(token).toLowerCase();
+    if (!normToken) continue;
+
+    // 1) グループ名との完全一致
+    let match = groups.find(
+      (g) => normalizeStr(g.name).toLowerCase() === normToken
+    );
+    let matchType = "exact";
+
+    // 2) 読み仮名との完全一致
+    if (!match) {
+      match = groups.find(
+        (g) => g.reading && normalizeStr(g.reading).toLowerCase() === normToken
+      );
+      matchType = "exact-reading";
+    }
+
+    // 3) 部分一致(表記ゆれ対応のフォールバック)
+    if (!match) {
+      match = groups.find((g) => {
+        const gn = normalizeStr(g.name).toLowerCase();
+        return (
+          gn.length >= 2 &&
+          normToken.length >= 2 &&
+          (gn.includes(normToken) || normToken.includes(gn))
+        );
+      });
+      matchType = "fuzzy";
+    }
+
+    if (match) {
+      results.push({ ...match, query: token, matchType });
+    } else {
+      notFound.push(token);
+    }
+  }
+
+  // 重複除去(同名グループが複数レコードある場合は最初の1件を採用)
+  const seen = new Set();
+  const unique = [];
+  for (const r of results) {
+    if (!seen.has(r.name)) {
+      seen.add(r.name);
+      unique.push(r);
+    }
+  }
+
+  unique.sort((a, b) => (a.reading || a.name).localeCompare(b.reading || b.name, "ja"));
+
+  return { matched: unique, notFound };
+}
+
 // ---- API ----
 
 app.post("/api/refresh", async (req, res) => {
@@ -167,6 +240,37 @@ app.post("/api/lookup", async (req, res) => {
       pageTitle,
       matchedCount: unique.length,
       groups: unique,
+      dbTotal: groups.length,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+app.post("/api/lookup-list", async (req, res) => {
+  const { text } = req.body || {};
+
+  if (!text || !text.trim()) {
+    return res.status(400).json({ ok: false, error: "グループ名を入力してください" });
+  }
+
+  try {
+    const tokens = splitGroupList(text);
+
+    if (tokens.length === 0) {
+      return res.status(400).json({ ok: false, error: "グループ名を認識できませんでした" });
+    }
+
+    const groups = await getGroups();
+    const { matched, notFound } = matchListAgainstGroups(tokens, groups);
+
+    res.json({
+      ok: true,
+      tokenCount: tokens.length,
+      matchedCount: matched.length,
+      groups: matched,
+      notFound,
       dbTotal: groups.length,
     });
   } catch (e) {
