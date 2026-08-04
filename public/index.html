@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>撮可チェック | Satsuka Check</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --stage: #12141c;
+    --stage-deep: #0b0c12;
+    --panel: #1b1e29;
+    --line: #2c303e;
+    --ink: #edeae3;
+    --ink-dim: #9a9db0;
+    --flash: #ffb347;
+    --ok: #6fcf97;
+    --ng: #ef6f6f;
+    --maybe: #f2c94c;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(circle at 15% -10%, rgba(255,179,71,0.10), transparent 45%),
+      var(--stage);
+    color: var(--ink);
+    font-family: 'Noto Sans JP', system-ui, sans-serif;
+    min-height: 100vh;
+  }
+
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 56px 20px 80px;
+  }
+
+  header.top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 40px;
+    flex-wrap: wrap;
+  }
+
+  .brand {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.28em;
+    color: var(--flash);
+    text-transform: uppercase;
+  }
+
+  h1 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-weight: 700;
+    font-size: clamp(32px, 5vw, 46px);
+    line-height: 1.05;
+    margin: 6px 0 0;
+    letter-spacing: -0.01em;
+  }
+
+  .sub {
+    color: var(--ink-dim);
+    font-size: 14px;
+    margin-top: 8px;
+    max-width: 46ch;
+  }
+
+  .db-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--ink-dim);
+    text-align: right;
+  }
+  .db-badge span { color: var(--flash); }
+  .db-badge button {
+    display: block;
+    margin-top: 6px;
+    background: none;
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .db-badge button:hover { border-color: var(--flash); color: var(--flash); }
+
+  /* --- ticket-stub input card --- */
+  .stub {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 28px 28px 26px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .stub::before, .stub::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    width: 22px;
+    height: 22px;
+    background: var(--stage);
+    border-radius: 50%;
+    transform: translateY(-50%);
+  }
+  .stub::before { left: -11px; }
+  .stub::after { right: -11px; }
+
+  .stub input[type="url"] {
+    flex: 1 1 320px;
+    background: var(--stage-deep);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    color: var(--ink);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    outline: none;
+  }
+  .stub input[type="url"]::placeholder { color: #565a6b; }
+  .stub input[type="url"]:focus { border-color: var(--flash); }
+
+  .stub button.go {
+    background: var(--flash);
+    color: #23180a;
+    border: none;
+    font-weight: 700;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 17px;
+    letter-spacing: 0.04em;
+    padding: 14px 26px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.12s ease, opacity 0.12s ease;
+  }
+  .stub button.go:hover { transform: translateY(-1px); }
+  .stub button.go:disabled { opacity: 0.5; cursor: default; transform: none; }
+
+  .perf {
+    width: 100%;
+    border-top: 1px dashed var(--line);
+    margin-top: 20px;
+    padding-top: 14px;
+    color: var(--ink-dim);
+    font-size: 12.5px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* --- status / results --- */
+  #status {
+    margin: 22px 2px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--ink-dim);
+    min-height: 20px;
+  }
+  #status.error { color: var(--ng); }
+
+  .result-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin: 40px 2px 14px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .result-head h2 {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 22px;
+    margin: 0;
+    font-weight: 600;
+  }
+  .result-head .page-title {
+    color: var(--ink-dim);
+    font-size: 13px;
+    max-width: 100%;
+  }
+
+  .cards {
+    display: grid;
+    gap: 10px;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 16px;
+    align-items: center;
+  }
+
+  .card .name {
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .card .reading {
+    color: var(--ink-dim);
+    font-size: 12px;
+    grid-column: 1;
+  }
+  .card .note {
+    grid-column: 1;
+    color: var(--ink-dim);
+    font-size: 12.5px;
+    margin-top: 4px;
+  }
+
+  .chips {
+    display: flex;
+    gap: 6px;
+    grid-row: span 2;
+    align-self: start;
+  }
+  .chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .chip.ok   { background: rgba(111,207,151,0.12); color: var(--ok); border-color: rgba(111,207,151,0.35); }
+  .chip.ng   { background: rgba(239,111,111,0.12); color: var(--ng); border-color: rgba(239,111,111,0.35); }
+  .chip.maybe{ background: rgba(242,201,76,0.12); color: var(--maybe); border-color: rgba(242,201,76,0.35); }
+  .chip.unk  { background: rgba(154,157,176,0.12); color: var(--ink-dim); border-color: var(--line); }
+
+  .empty {
+    text-align: center;
+    color: var(--ink-dim);
+    padding: 50px 10px;
+    font-size: 14px;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+    margin-top: 20px;
+  }
+
+  footer {
+    margin-top: 60px;
+    color: #565a6b;
+    font-size: 11.5px;
+    font-family: 'JetBrains Mono', monospace;
+    text-align: center;
+  }
+
+  @media (max-width: 480px) {
+    .card { grid-template-columns: 1fr; }
+    .chips { grid-row: auto; margin-top: 8px; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div>
+        <div class="brand">撮可チェック / Satsuka Check</div>
+        <h1>チケットURLを貼るだけ、<br>撮影OK/NGを一覧照合。</h1>
+        <p class="sub">対バン・イベントのチケット詳細ページのURLを入力すると、出演グループの静止画/動画撮影レギュレーションをNotion DBから自動で照合して表示します。</p>
+      </div>
+      <div class="db-badge">
+        DB件数: <span id="dbCount">—</span> 件
+        <button id="refreshBtn" type="button">DBを再取得</button>
+      </div>
+    </header>
+
+    <form id="lookupForm" autocomplete="off">
+      <div class="stub">
+        <input type="url" id="urlInput" placeholder="https://example.com/event/xxxxx" required />
+        <button class="go" id="goBtn" type="submit">照合する</button>
+        <div class="perf">SEAT — GENERAL &nbsp;/&nbsp; ADMIT ONE &nbsp;/&nbsp; NO REFUND</div>
+      </div>
+    </form>
+
+    <div id="status"></div>
+
+    <div id="results"></div>
+
+    <footer>グループ名がページ本文にそのまま含まれるかで判定する簡易照合です。表記ゆれ等で漏れる場合があります。最終確認は各グループの公式Xで。</footer>
+  </div>
+
+<script>
+  const form = document.getElementById('lookupForm');
+  const urlInput = document.getElementById('urlInput');
+  const goBtn = document.getElementById('goBtn');
+  const statusEl = document.getElementById('status');
+  const resultsEl = document.getElementById('results');
+  const dbCountEl = document.getElementById('dbCount');
+  const refreshBtn = document.getElementById('refreshBtn');
+
+  function chipInfo(value) {
+    if (value === '可') return { cls: 'ok', label: '可' };
+    if (value === '不可') return { cls: 'ng', label: '不可' };
+    if (value === '※') return { cls: 'maybe', label: '要確認' };
+    return { cls: 'unk', label: '不明' };
+  }
+
+  function renderCard(g) {
+    const photo = chipInfo(g.photo);
+    const video = chipInfo(g.video);
+    return `
+      <div class="card">
+        <div class="name">${escapeHtml(g.name)}</div>
+        <div class="reading">${escapeHtml(g.reading || '')}</div>
+        ${g.note ? `<div class="note">${escapeHtml(g.note)}</div>` : ''}
+        <div class="chips">
+          <span class="chip ${photo.cls}">静止画 ${photo.label}</span>
+          <span class="chip ${video.cls}">動画 ${video.label}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  async function runRefresh() {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = '取得中…';
+    try {
+      const res = await fetch('/api/refresh', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        dbCountEl.textContent = data.count;
+      }
+    } catch (e) {
+      // ignore, badge will just stay as-is
+    } finally {
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = 'DBを再取得';
+    }
+  }
+
+  refreshBtn.addEventListener('click', runRefresh);
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const url = urlInput.value.trim();
+    if (!url) return;
+
+    goBtn.disabled = true;
+    goBtn.textContent = '照合中…';
+    statusEl.className = '';
+    statusEl.textContent = 'ページを取得して照合しています…';
+    resultsEl.innerHTML = '';
+
+    try {
+      const res = await fetch('/api/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+
+      if (!data.ok) {
+        statusEl.className = 'error';
+        statusEl.textContent = data.error || '照合に失敗しました';
+        return;
+      }
+
+      dbCountEl.textContent = data.dbTotal;
+      statusEl.textContent = `照合完了 — DB ${data.dbTotal}件中 ${data.matchedCount}件がページ内に一致`;
+
+      if (data.groups.length === 0) {
+        resultsEl.innerHTML = `<div class="empty">一致するグループが見つかりませんでした。<br>表記ゆれ、または未登録グループの可能性があります。</div>`;
+        return;
+      }
+
+      const head = `
+        <div class="result-head">
+          <h2>照合結果 (${data.groups.length})</h2>
+          <div class="page-title">${escapeHtml(data.pageTitle || '')}</div>
+        </div>
+      `;
+      const cards = `<div class="cards">${data.groups.map(renderCard).join('')}</div>`;
+      resultsEl.innerHTML = head + cards;
+    } catch (err) {
+      statusEl.className = 'error';
+      statusEl.textContent = 'エラーが発生しました: ' + err.message;
+    } finally {
+      goBtn.disabled = false;
+      goBtn.textContent = '照合する';
+    }
+  });
+
+  // 初回ロード時にDB件数だけ軽く取得しておく
+  runRefresh();
+</script>
+</body>
+</html>
