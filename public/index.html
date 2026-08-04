@@ -353,6 +353,32 @@
     font-weight: 700;
     font-size: 16px;
   }
+  .card .links {
+    grid-column: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .link-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-dim);
+    text-decoration: none;
+    border: 1px solid var(--line);
+    padding: 4px 10px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: border-color 0.12s ease, color 0.12s ease;
+  }
+  .link-btn:hover {
+    color: var(--flash);
+    border-color: var(--flash);
+  }
+
   .card .reading {
     color: var(--ink-dim);
     font-size: 12px;
@@ -417,7 +443,7 @@
       padding-bottom: 8px;
       margin-bottom: 10px;
     }
-    .card .name, .card .reading, .card .note { grid-column: 1; }
+    .card .name, .card .reading, .card .note, .card .links { grid-column: 1; }
     .chips { grid-column: 1; grid-row: auto; margin-top: 8px; }
   }
 </style>
@@ -510,10 +536,20 @@
     return { cls: 'unk', label: '不明' };
   }
 
+  function isUrl(s) {
+    return typeof s === 'string' && /^https?:\/\//i.test(s);
+  }
+
   function renderCard(g, index, total) {
     const photo = chipInfo(g.photo);
     const video = chipInfo(g.video);
     const showQueryNote = g.matchType === 'fuzzy' && g.query && g.query !== g.name;
+
+    const links = [];
+    if (isUrl(g.xLink)) links.push({ href: g.xLink, label: '𝕏 公式' });
+    if (isUrl(g.source1)) links.push({ href: g.source1, label: 'ソース1' });
+    if (isUrl(g.source2)) links.push({ href: g.source2, label: 'ソース2' });
+
     return `
       <div class="card" draggable="true" data-index="${index}">
         <div class="order-ctrl">
@@ -522,9 +558,9 @@
           <button type="button" data-action="down" data-index="${index}" ${index === total - 1 ? 'disabled' : ''} title="下へ">▼</button>
         </div>
         <div class="name"><span class="order-num">${index + 1}</span>${escapeHtml(g.name)}</div>
-        <div class="reading">${escapeHtml(g.reading || '')}</div>
         ${showQueryNote ? `<div class="query-note">入力: 「${escapeHtml(g.query)}」に近い名前で一致(表記ゆれの可能性)</div>` : ''}
         ${g.note ? `<div class="note">${escapeHtml(g.note)}</div>` : ''}
+        ${links.length ? `<div class="links">${links.map((l) => `<a class="link-btn" href="${escapeAttr(l.href)}" target="_blank" rel="noopener noreferrer">${l.label} ↗</a>`).join('')}</div>` : ''}
         <div class="chips">
           <span class="chip ${photo.cls}">静止画 ${photo.label}</span>
           <span class="chip ${video.cls}">動画 ${video.label}</span>
@@ -625,6 +661,10 @@
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
+  }
+
+  function escapeAttr(str) {
+    return escapeHtml(str).replace(/"/g, '&quot;');
   }
 
   async function runRefresh() {
