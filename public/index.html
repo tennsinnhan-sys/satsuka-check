@@ -595,9 +595,26 @@
     gap: 5px;
     flex-shrink: 0;
   }
+
+  .col-headers {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px 6px;
+  }
+  .col-headers .spacer { flex: 1; }
+  .col-headers span.col-label {
+    width: 48px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    color: var(--ink-dim);
+    flex-shrink: 0;
+  }
+  .col-headers .chevron-spacer { width: 10px; flex-shrink: 0; }
   .badge {
-    width: 21px;
-    height: 21px;
+    width: 48px;
+    height: 22px;
     border-radius: 7px;
     display: flex;
     align-items: center;
@@ -613,13 +630,12 @@
   .badge.heroines { background: rgba(236,127,196,0.14); color: var(--heroines); }
   .badge.partial  { background: rgba(79,195,217,0.14); color: var(--partial); }
   .badge.unk      { background: rgba(154,157,176,0.14); color: var(--ink-dim); }
-  .badge.icon     { font-size: 12px; font-weight: 400; }
+  .badge.icon     { font-size: 13px; font-weight: 400; }
   .badge.text-badge {
-    width: auto;
-    min-width: 21px;
-    padding: 0 6px;
-    font-size: 9px;
+    padding: 0 4px;
+    font-size: 7.5px;
     font-weight: 700;
+    letter-spacing: -0.2px;
   }
   .badge-mark {
     position: absolute;
@@ -1196,11 +1212,15 @@
       ${currentGroups.length > 1 ? `<div class="reorder-hint">${editMode ? '編集モード: 行をタップしてこの場限定のレギュを入力' : '⠿ をドラッグしてタイムテーブル順に並べ替え、行をタップで詳細表示'}</div>` : ''}
     `;
 
+    const colHeaders = matchedCount > 0
+      ? `<div class="col-headers"><span class="spacer"></span><span class="col-label">静止画</span><span class="col-label">動画</span><span class="chevron-spacer"></span></div>`
+      : '';
+
     const cards = currentGroups.length
       ? `<div class="cards">${currentGroups.map((g, i) => renderCard(g, i, currentGroups.length)).join('')}</div>`
       : `<div class="empty">一致するグループが見つかりませんでした。</div>`;
 
-    resultsEl.innerHTML = renderEventCard(currentEventInfo) + head + cards + renderNotFound(currentNotFound) + renderUnknownOnPage(currentUnknownOnPage);
+    resultsEl.innerHTML = renderEventCard(currentEventInfo) + head + colHeaders + cards + renderNotFound(currentNotFound) + renderUnknownOnPage(currentUnknownOnPage);
     attachCardEvents();
 
     const toggleEl = document.getElementById('editModeToggle');
@@ -1478,8 +1498,9 @@
         }
       }
 
-      statusEl.textContent = `照合完了 — DB ${data.dbTotal}件中 ${data.matchedCount}件がページ内に一致`
-        + (restoredCount > 0 ? ` / 前回(${formatCachedAt(savedEdits.savedAt)})の編集${restoredCount}件を復元` : '');
+      statusEl.textContent = restoredCount > 0
+        ? `前回(${formatCachedAt(savedEdits.savedAt)})の編集${restoredCount}件を復元しました`
+        : '';
 
       draw();
     } catch (err) {
@@ -1520,7 +1541,7 @@
       }
 
       dbCountEl.textContent = data.dbTotal;
-      statusEl.textContent = `照合完了 — 入力${data.tokenCount}件中 ${data.matchedCount}件がDBに一致`;
+      statusEl.textContent = '';
 
       currentGroups = data.groups;
       currentNotFound = data.notFound || [];
