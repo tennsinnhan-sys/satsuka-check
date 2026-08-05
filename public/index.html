@@ -23,6 +23,7 @@
     --ng: #ef6f6f;
     --maybe: #f2c94c;
     --heroines: #ec7fc4;
+    --partial: #4fc3d9;
   }
 
   * { box-sizing: border-box; }
@@ -302,6 +303,16 @@
     margin-left: auto;
   }
 
+  .clear-all-link {
+    color: #565a6b;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    text-decoration: underline;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .clear-all-link:hover { color: var(--ink-dim); }
+
   .edit-toggle-wrap {
     display: flex;
     align-items: center;
@@ -340,7 +351,10 @@
     margin-left: 2px;
     flex-shrink: 0;
   }
-  .card.overridden { border-color: var(--flash); }
+  .card.overridden {
+    background: rgba(255,179,71,0.10);
+    border-color: rgba(255,179,71,0.35);
+  }
 
   .modal-overlay {
     display: none;
@@ -398,11 +412,12 @@
   }
   .option-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
     margin-bottom: 14px;
   }
   .option-btn {
-    flex: 1;
+    flex: 1 1 30%;
     text-align: center;
     padding: 7px 4px;
     border-radius: 6px;
@@ -417,6 +432,7 @@
   .option-btn.selected.ng       { background: rgba(239,111,111,0.18); color: var(--ng); border-color: var(--ng); }
   .option-btn.selected.maybe    { background: rgba(242,201,76,0.18); color: var(--maybe); border-color: var(--maybe); }
   .option-btn.selected.heroines { background: rgba(236,127,196,0.18); color: var(--heroines); border-color: var(--heroines); }
+  .option-btn.selected.partial  { background: rgba(79,195,217,0.18); color: var(--partial); border-color: var(--partial); }
   .modal-memo {
     width: 100%;
     box-sizing: border-box;
@@ -542,6 +558,7 @@
   .badge.ng       { background: rgba(239,111,111,0.14); color: var(--ng); }
   .badge.maybe    { background: rgba(242,201,76,0.14); color: var(--maybe); }
   .badge.heroines { background: rgba(236,127,196,0.14); color: var(--heroines); }
+  .badge.partial  { background: rgba(79,195,217,0.14); color: var(--partial); }
   .badge.unk      { background: rgba(154,157,176,0.14); color: var(--ink-dim); }
 
   .chevron {
@@ -756,6 +773,71 @@
     return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
+  // ---- URLごとの編集内容の保存(DBには反映しない、同じチケットURLを再照合した時だけ復元) ----
+  const EDITS_STORAGE_KEY = 'satsuka_check_url_edits_v1';
+  const EDITS_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30日
+
+  function loadAllEdits() {
+    try {
+      const raw = localStorage.getItem(EDITS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveAllEdits(all) {
+    try {
+      localStorage.setItem(EDITS_STORAGE_KEY, JSON.stringify(all));
+    } catch (e) {
+      // 保存できなくてもアプリ自体は動作させる
+    }
+  }
+
+  function pruneExpiredEdits(all) {
+    const now = Date.now();
+    let changed = false;
+    for (const url of Object.keys(all)) {
+      if (!all[url] || now - all[url].savedAt > EDITS_TTL_MS) {
+        delete all[url];
+        changed = true;
+      }
+    }
+    if (changed) saveAllEdits(all);
+    return all;
+  }
+
+  function getEditsForUrl(url) {
+    const all = pruneExpiredEdits(loadAllEdits());
+    return all[url] || null;
+  }
+
+  function setEditForGroup(url, groupName, data) {
+    const all = pruneExpiredEdits(loadAllEdits());
+    if (!all[url]) all[url] = { savedAt: Date.now(), groups: {} };
+    all[url].savedAt = Date.now();
+    all[url].groups[groupName] = data;
+    saveAllEdits(all);
+  }
+
+  function removeEditForGroup(url, groupName) {
+    const all = loadAllEdits();
+    if (!all[url]) return;
+    delete all[url].groups[groupName];
+    if (Object.keys(all[url].groups).length === 0) {
+      delete all[url];
+    } else {
+      all[url].savedAt = Date.now();
+    }
+    saveAllEdits(all);
+  }
+
+  function clearEditsForUrl(url) {
+    const all = loadAllEdits();
+    delete all[url];
+    saveAllEdits(all);
+  }
+
   async function refreshGroupsCache() {
     try {
       const res = await fetch('/api/groups');
@@ -867,9 +949,11 @@
   let dragSrcIndex = null;
   let editMode = false;
   let editingIndex = null;
+  let currentEditUrl = null;
 
   function chipInfo(value) {
     if (value === '可') return { cls: 'ok', label: '可' };
+    if (value === '可※') return { cls: 'partial', label: '可※' };
     if (value === '不可') return { cls: 'ng', label: '不可' };
     if (value === '※') return { cls: 'maybe', label: '要確認' };
     if (value === 'HEROINES') return { cls: 'heroines', label: 'HEROINES' };
@@ -935,11 +1019,15 @@
       return;
     }
 
+    const savedEditsForCurrentUrl = currentEditUrl ? getEditsForUrl(currentEditUrl) : null;
+    const showClearAll = editMode && savedEditsForCurrentUrl && Object.keys(savedEditsForCurrentUrl.groups).length > 0;
+
     const head = `
       <div class="result-head">
         <h2>照合結果 (${currentGroups.length})</h2>
         ${currentPageTitle ? `<div class="page-title">${escapeHtml(currentPageTitle)}</div>` : ''}
         <div class="result-head-controls">
+          ${showClearAll ? '<span class="clear-all-link" id="clearAllEdits">このURLの編集を全消去</span>' : ''}
           <div class="edit-toggle-wrap" id="editModeToggle">
             <span>編集モード</span>
             <div class="edit-toggle${editMode ? ' on' : ''}"><div class="knob"></div></div>
@@ -960,6 +1048,25 @@
     if (toggleEl) {
       toggleEl.addEventListener('click', () => {
         editMode = !editMode;
+        draw();
+      });
+    }
+
+    const clearAllEl = document.getElementById('clearAllEdits');
+    if (clearAllEl) {
+      clearAllEl.addEventListener('click', () => {
+        const count = Object.keys(savedEditsForCurrentUrl.groups).length;
+        if (!confirm(`このURLの編集内容(${count}件)を消去しますか？`)) return;
+        clearEditsForUrl(currentEditUrl);
+        currentGroups.forEach((g) => {
+          if (g._overridden && g._original) {
+            g.photo = g._original.photo;
+            g.video = g._original.video;
+            g.note = g._original.note;
+            delete g._original;
+            delete g._overridden;
+          }
+        });
         draw();
       });
     }
@@ -1022,6 +1129,7 @@
   // ---- 編集モード: この場限定の一時上書き(DBには反映しない、画面表示のみ) ----
   const STATUS_OPTIONS = [
     { value: '可', cls: 'ok' },
+    { value: '可※', cls: 'partial' },
     { value: '不可', cls: 'ng' },
     { value: '※', cls: 'maybe' },
     { value: 'HEROINES', cls: 'heroines' },
@@ -1064,6 +1172,9 @@
       g.video = selectedVideo;
       g.note = editMemo.value.trim();
       g._overridden = true;
+      if (currentEditUrl) {
+        setEditForGroup(currentEditUrl, g.name, { photo: g.photo, video: g.video, note: g.note });
+      }
       closeEditModal();
       draw();
     };
@@ -1075,6 +1186,9 @@
         g.note = g._original.note;
         delete g._original;
         delete g._overridden;
+      }
+      if (currentEditUrl) {
+        removeEditForGroup(currentEditUrl, g.name);
       }
       closeEditModal();
       draw();
@@ -1156,11 +1270,31 @@
       }
 
       dbCountEl.textContent = data.dbTotal;
-      statusEl.textContent = `照合完了 — DB ${data.dbTotal}件中 ${data.matchedCount}件がページ内に一致`;
 
       currentGroups = data.groups;
       currentNotFound = [];
       currentPageTitle = data.pageTitle || '';
+      currentEditUrl = url;
+
+      const savedEdits = getEditsForUrl(url);
+      let restoredCount = 0;
+      if (savedEdits) {
+        for (const g of currentGroups) {
+          const saved = savedEdits.groups[g.name];
+          if (saved) {
+            g._original = { photo: g.photo, video: g.video, note: g.note };
+            g.photo = saved.photo;
+            g.video = saved.video;
+            g.note = saved.note;
+            g._overridden = true;
+            restoredCount++;
+          }
+        }
+      }
+
+      statusEl.textContent = `照合完了 — DB ${data.dbTotal}件中 ${data.matchedCount}件がページ内に一致`
+        + (restoredCount > 0 ? ` / 前回(${formatCachedAt(savedEdits.savedAt)})の編集${restoredCount}件を復元` : '');
+
       draw();
     } catch (err) {
       statusEl.className = 'error';
@@ -1204,6 +1338,7 @@
       currentGroups = data.groups;
       currentNotFound = data.notFound || [];
       currentPageTitle = '';
+      currentEditUrl = null;
       draw();
     } catch (err) {
       // サーバーに届かない(オフライン等) → 端末保存のDBスナップショットで代わりに照合
@@ -1228,6 +1363,7 @@
       currentGroups = matched;
       currentNotFound = notFound;
       currentPageTitle = '';
+      currentEditUrl = null;
       draw();
     } finally {
       listGoBtn.disabled = false;
