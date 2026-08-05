@@ -5,25 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>撮可チェック | Satsuka Check</title>
 <link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#12141c">
-<link rel="icon" href="/icons/icon-192.png">
-<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<meta name="theme-color" content="#eef1fb">
+<link rel="icon" href="/icons/icon-192.png?v=2">
+<link rel="apple-touch-icon" href="/icons/icon-192.png?v=2">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --stage: #12141c;
-    --stage-deep: #0b0c12;
-    --panel: #1b1e29;
-    --line: #2c303e;
-    --ink: #edeae3;
-    --ink-dim: #9a9db0;
-    --flash: #ffb347;
-    --ok: #6fcf97;
-    --ng: #ef6f6f;
-    --maybe: #f2c94c;
-    --heroines: #ec7fc4;
-    --partial: #4fc3d9;
+    --stage: #eef1fb;
+    --stage-deep: #e4e8f8;
+    --panel: #ffffff;
+    --line: #e1e4f0;
+    --ink: #1f2333;
+    --ink-dim: #7d81a0;
+    --muted: #a3a6bd;
+    --flash: #6366f1;
+    --flash-ink: #ffffff;
+    --edited: #8a5a0b;
+    --ok: #0f6e56;
+    --ng: #a32d2d;
+    --maybe: #8a5a0b;
+    --heroines: #99345a;
+    --partial: #0e7490;
   }
 
   * { box-sizing: border-box; }
@@ -31,7 +34,7 @@
   body {
     margin: 0;
     background:
-      radial-gradient(circle at 15% -10%, rgba(255,179,71,0.10), transparent 45%),
+      radial-gradient(circle at 15% -10%, rgba(99,102,241,0.08), transparent 45%),
       var(--stage);
     color: var(--ink);
     font-family: 'Noto Sans JP', system-ui, sans-serif;
@@ -94,7 +97,7 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
     padding: 4px 10px;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
   }
   .db-badge button:hover { border-color: var(--flash); color: var(--flash); }
@@ -102,7 +105,7 @@
     display: block;
     margin-top: 4px;
     font-size: 10.5px;
-    color: #565a6b;
+    color: var(--muted);
   }
 
   .offline-banner {
@@ -115,7 +118,7 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: 12.5px;
     padding: 10px 14px;
-    border-radius: 8px;
+    border-radius: 12px;
     margin-bottom: 22px;
   }
   .offline-banner.show { display: flex; }
@@ -132,7 +135,7 @@
     position: relative;
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 18px;
     padding: 28px 28px 26px;
     display: flex;
     gap: 12px;
@@ -156,26 +159,26 @@
     flex: 1 1 320px;
     background: var(--stage-deep);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 12px;
     padding: 14px 16px;
     color: var(--ink);
     font-family: 'JetBrains Mono', monospace;
     font-size: 14px;
     outline: none;
   }
-  .stub input[type="url"]::placeholder { color: #565a6b; }
+  .stub input[type="url"]::placeholder { color: var(--muted); }
   .stub input[type="url"]:focus { border-color: var(--flash); }
 
   .stub button.go {
     background: var(--flash);
-    color: #23180a;
+    color: var(--flash-ink);
     border: none;
     font-weight: 700;
     font-family: 'Barlow Condensed', sans-serif;
     font-size: 17px;
     letter-spacing: 0.04em;
     padding: 14px 26px;
-    border-radius: 8px;
+    border-radius: 12px;
     cursor: pointer;
     transition: transform 0.12s ease, opacity 0.12s ease;
   }
@@ -201,7 +204,7 @@
     cursor: pointer;
   }
   .tab.active {
-    background: rgba(255,179,71,0.12);
+    background: rgba(99,102,241,0.10);
     border-color: var(--flash);
     color: var(--flash);
   }
@@ -210,7 +213,7 @@
     flex: 1 1 100%;
     background: var(--stage-deep);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 12px;
     padding: 14px 16px;
     color: var(--ink);
     font-family: 'JetBrains Mono', monospace;
@@ -220,7 +223,7 @@
     resize: vertical;
     min-height: 96px;
   }
-  .stub textarea::placeholder { color: #565a6b; }
+  .stub textarea::placeholder { color: var(--muted); }
   .stub textarea:focus { border-color: var(--flash); }
 
   .stub .list-actions {
@@ -232,7 +235,7 @@
   .not-found {
     margin-top: 26px;
     border: 1px dashed var(--line);
-    border-radius: 10px;
+    border-radius: 14px;
     padding: 16px 18px;
   }
   .not-found h3 {
@@ -248,7 +251,7 @@
     justify-content: space-between;
     cursor: pointer;
   }
-  .not-found-toggle .chevron { color: #565a6b; font-size: 10px; }
+  .not-found-toggle .chevron { color: var(--muted); font-size: 10px; }
   .not-found-toggle.open .chevron { transform: rotate(90deg); color: var(--flash); }
   .not-found .tags {
     display: flex;
@@ -263,7 +266,7 @@
     border: 1px solid rgba(239,111,111,0.25);
     color: var(--ng);
     padding: 4px 9px;
-    border-radius: 6px;
+    border-radius: 10px;
   }
   .unknown-on-page .tags span {
     background: rgba(79,195,217,0.08);
@@ -332,7 +335,7 @@
   }
 
   .clear-all-link {
-    color: #565a6b;
+    color: var(--muted);
     font-family: 'JetBrains Mono', monospace;
     font-size: 10.5px;
     text-decoration: underline;
@@ -374,14 +377,14 @@
   .edit-toggle.on .knob { left: 17px; }
 
   .edit-mark {
-    color: var(--flash);
+    color: var(--edited);
     font-size: 11px;
     margin-left: 2px;
     flex-shrink: 0;
   }
   .card.overridden {
-    background: rgba(255,179,71,0.10);
-    border-color: rgba(255,179,71,0.35);
+    background: rgba(138,90,11,0.08);
+    border-color: rgba(138,90,11,0.30);
   }
 
   .modal-overlay {
@@ -398,7 +401,7 @@
   .modal-box {
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 12px;
+    border-radius: 16px;
     padding: 18px;
     width: 100%;
     max-width: 360px;
@@ -427,7 +430,7 @@
     padding: 4px;
   }
   .modal-hint {
-    color: #565a6b;
+    color: var(--muted);
     font-family: 'JetBrains Mono', monospace;
     font-size: 10.5px;
     margin-bottom: 14px;
@@ -448,7 +451,7 @@
     flex: 1 1 30%;
     text-align: center;
     padding: 7px 4px;
-    border-radius: 6px;
+    border-radius: 10px;
     border: 1px solid var(--line);
     color: var(--ink-dim);
     font-family: 'JetBrains Mono', monospace;
@@ -466,7 +469,7 @@
     box-sizing: border-box;
     background: var(--stage-deep);
     border: 1px solid var(--line);
-    border-radius: 6px;
+    border-radius: 10px;
     padding: 8px;
     color: var(--ink);
     font-family: 'JetBrains Mono', monospace;
@@ -483,7 +486,7 @@
   .modal-reset {
     background: none;
     border: none;
-    color: #565a6b;
+    color: var(--muted);
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
     cursor: pointer;
@@ -492,13 +495,13 @@
   }
   .modal-save {
     background: var(--flash);
-    color: #23180a;
+    color: var(--flash-ink);
     border: none;
     font-weight: 700;
     font-family: 'Barlow Condensed', sans-serif;
     font-size: 15px;
     padding: 9px 22px;
-    border-radius: 6px;
+    border-radius: 10px;
     cursor: pointer;
   }
 
@@ -519,7 +522,7 @@
   .card {
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 8px;
+    border-radius: 12px;
     overflow: hidden;
     transition: opacity 0.15s ease;
   }
@@ -536,7 +539,7 @@
 
   .handle {
     cursor: grab;
-    color: #565a6b;
+    color: var(--muted);
     font-size: 13px;
     line-height: 1;
     flex-shrink: 0;
@@ -574,7 +577,7 @@
   .badge {
     width: 21px;
     height: 21px;
-    border-radius: 5px;
+    border-radius: 7px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -615,7 +618,7 @@
   }
 
   .chevron {
-    color: #565a6b;
+    color: var(--muted);
     font-size: 10px;
     flex-shrink: 0;
     transition: transform 0.15s ease;
@@ -639,7 +642,7 @@
   .card-detail .status-line span.label { color: var(--ink-dim); margin-right: 4px; }
 
   .query-note {
-    color: #6b6f82;
+    color: var(--muted);
     font-size: 11px;
     margin-bottom: 6px;
   }
@@ -662,7 +665,7 @@
     text-decoration: none;
     border: 1px solid var(--line);
     padding: 4px 10px;
-    border-radius: 6px;
+    border-radius: 10px;
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -679,13 +682,13 @@
     padding: 50px 10px;
     font-size: 14px;
     border: 1px dashed var(--line);
-    border-radius: 10px;
+    border-radius: 14px;
     margin-top: 20px;
   }
 
   footer {
     margin-top: 60px;
-    color: #565a6b;
+    color: var(--muted);
     font-size: 11.5px;
     font-family: 'JetBrains Mono', monospace;
     text-align: center;
