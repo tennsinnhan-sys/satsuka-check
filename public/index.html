@@ -22,6 +22,7 @@
     --ok: #6fcf97;
     --ng: #ef6f6f;
     --maybe: #f2c94c;
+    --heroines: #ec7fc4;
   }
 
   * { box-sizing: border-box; }
@@ -255,13 +256,6 @@
     border-radius: 6px;
   }
 
-  .card .query-note {
-    grid-column: 2;
-    color: #6b6f82;
-    font-size: 11px;
-    margin-top: 2px;
-  }
-
   .perf {
     width: 100%;
     border-top: 1px dashed var(--line);
@@ -302,77 +296,6 @@
     max-width: 100%;
   }
 
-  .cards {
-    display: grid;
-    gap: 10px;
-  }
-
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 16px 18px;
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 4px 16px;
-    align-items: center;
-    transition: opacity 0.15s ease, transform 0.15s ease;
-  }
-  .card.dragging {
-    opacity: 0.35;
-  }
-  .card.drag-over {
-    border-color: var(--flash);
-  }
-
-  .order-ctrl {
-    grid-column: 1;
-    grid-row: 1 / -1;
-    align-self: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    padding-right: 14px;
-    border-right: 1px solid var(--line);
-    margin-right: 2px;
-  }
-  .order-ctrl button {
-    background: none;
-    border: none;
-    color: var(--ink-dim);
-    cursor: pointer;
-    font-size: 12px;
-    line-height: 1;
-    padding: 5px;
-    border-radius: 4px;
-  }
-  .order-ctrl button:hover:not(:disabled) {
-    color: var(--flash);
-    background: rgba(255,179,71,0.10);
-  }
-  .order-ctrl button:disabled {
-    opacity: 0.2;
-    cursor: default;
-  }
-  .order-ctrl .handle {
-    cursor: grab;
-    color: #565a6b;
-    font-size: 15px;
-    padding: 3px 0;
-    letter-spacing: -1px;
-  }
-  .order-ctrl .handle:active { cursor: grabbing; }
-
-  .order-num {
-    display: inline-block;
-    color: var(--flash);
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 700;
-    font-size: 12.5px;
-    margin-right: 8px;
-  }
-
   .reorder-hint {
     color: var(--ink-dim);
     font-size: 12px;
@@ -380,17 +303,124 @@
     margin: -4px 2px 14px;
   }
 
-  .card .name {
-    grid-column: 2;
-    font-weight: 700;
-    font-size: 16px;
+  .cards {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
-  .card .links {
-    grid-column: 2;
+
+  /* --- compact row card --- */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: opacity 0.15s ease;
+  }
+  .card.dragging { opacity: 0.35; }
+  .card.drag-over { border-color: var(--flash); }
+
+  .card-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    cursor: pointer;
+  }
+
+  .handle {
+    cursor: grab;
+    color: #565a6b;
+    font-size: 13px;
+    line-height: 1;
+    flex-shrink: 0;
+    padding: 2px;
+  }
+  .handle:active { cursor: grabbing; }
+
+  .order-num {
+    color: var(--flash);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 11px;
+    flex-shrink: 0;
+    width: 16px;
+    text-align: right;
+  }
+
+  .card-name {
+    flex: 1;
+    min-width: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .badge-group {
+    display: flex;
+    gap: 5px;
+    flex-shrink: 0;
+  }
+  .badge {
+    width: 21px;
+    height: 21px;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 700;
+  }
+  .badge.ok       { background: rgba(111,207,151,0.14); color: var(--ok); }
+  .badge.ng       { background: rgba(239,111,111,0.14); color: var(--ng); }
+  .badge.maybe    { background: rgba(242,201,76,0.14); color: var(--maybe); }
+  .badge.heroines { background: rgba(236,127,196,0.14); color: var(--heroines); }
+  .badge.unk      { background: rgba(154,157,176,0.14); color: var(--ink-dim); }
+
+  .chevron {
+    color: #565a6b;
+    font-size: 10px;
+    flex-shrink: 0;
+    transition: transform 0.15s ease;
+  }
+  .card.expanded .chevron { transform: rotate(90deg); color: var(--flash); }
+
+  .card-detail {
+    display: none;
+    padding: 0 12px 12px 32px;
+    border-top: 1px solid var(--line);
+  }
+  .card.expanded .card-detail { display: block; padding-top: 10px; }
+
+  .card-detail .status-line {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+  }
+  .card-detail .status-line span.label { color: var(--ink-dim); margin-right: 4px; }
+
+  .query-note {
+    color: #6b6f82;
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  .note {
+    color: var(--ink-dim);
+    font-size: 12.5px;
+    margin-bottom: 8px;
+  }
+
+  .links {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-top: 8px;
   }
   .link-btn {
     font-family: 'JetBrains Mono', monospace;
@@ -411,39 +441,6 @@
     border-color: var(--flash);
   }
 
-  .card .reading {
-    color: var(--ink-dim);
-    font-size: 12px;
-    grid-column: 2;
-  }
-  .card .note {
-    grid-column: 2;
-    color: var(--ink-dim);
-    font-size: 12.5px;
-    margin-top: 4px;
-  }
-
-  .chips {
-    display: flex;
-    gap: 6px;
-    grid-column: 3;
-    grid-row: 1 / -1;
-    align-self: start;
-  }
-  .chip {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11.5px;
-    font-weight: 600;
-    padding: 5px 10px;
-    border-radius: 999px;
-    white-space: nowrap;
-    border: 1px solid transparent;
-  }
-  .chip.ok   { background: rgba(111,207,151,0.12); color: var(--ok); border-color: rgba(111,207,151,0.35); }
-  .chip.ng   { background: rgba(239,111,111,0.12); color: var(--ng); border-color: rgba(239,111,111,0.35); }
-  .chip.maybe{ background: rgba(242,201,76,0.12); color: var(--maybe); border-color: rgba(242,201,76,0.35); }
-  .chip.unk  { background: rgba(154,157,176,0.12); color: var(--ink-dim); border-color: var(--line); }
-
   .empty {
     text-align: center;
     color: var(--ink-dim);
@@ -460,23 +457,6 @@
     font-size: 11.5px;
     font-family: 'JetBrains Mono', monospace;
     text-align: center;
-  }
-
-  @media (max-width: 480px) {
-    .card { grid-template-columns: 1fr; }
-    .order-ctrl {
-      grid-column: 1;
-      grid-row: auto;
-      flex-direction: row;
-      justify-content: flex-start;
-      border-right: none;
-      border-bottom: 1px solid var(--line);
-      padding-right: 0;
-      padding-bottom: 8px;
-      margin-bottom: 10px;
-    }
-    .card .name, .card .reading, .card .note, .card .links { grid-column: 1; }
-    .chips { grid-column: 1; grid-row: auto; margin-top: 8px; }
   }
 </style>
 </head>
@@ -696,6 +676,7 @@
     if (value === '可') return { cls: 'ok', label: '可' };
     if (value === '不可') return { cls: 'ng', label: '不可' };
     if (value === '※') return { cls: 'maybe', label: '要確認' };
+    if (value === 'HEROINES') return { cls: 'heroines', label: 'HEROINES' };
     return { cls: 'unk', label: '不明' };
   }
 
@@ -713,21 +694,30 @@
     if (isUrl(g.source1)) links.push({ href: g.source1, label: 'ソース1' });
     if (isUrl(g.source2)) links.push({ href: g.source2, label: 'ソース2' });
 
+    const hasDetail = showQueryNote || g.note || links.length > 0;
+
     return `
       <div class="card" draggable="true" data-index="${index}">
-        <div class="order-ctrl">
-          <button type="button" data-action="up" data-index="${index}" ${index === 0 ? 'disabled' : ''} title="上へ">▲</button>
+        <div class="card-row" data-role="toggle">
           <span class="handle" title="ドラッグで並べ替え">⠿</span>
-          <button type="button" data-action="down" data-index="${index}" ${index === total - 1 ? 'disabled' : ''} title="下へ">▼</button>
+          <span class="order-num">${index + 1}</span>
+          <span class="card-name">${escapeHtml(g.name)}</span>
+          <div class="badge-group">
+            <span class="badge ${photo.cls}" title="静止画: ${photo.label}">静</span>
+            <span class="badge ${video.cls}" title="動画: ${video.label}">動</span>
+          </div>
+          ${hasDetail ? '<span class="chevron">▸</span>' : '<span class="chevron" style="visibility:hidden;">▸</span>'}
         </div>
-        <div class="name"><span class="order-num">${index + 1}</span>${escapeHtml(g.name)}</div>
-        ${showQueryNote ? `<div class="query-note">入力: 「${escapeHtml(g.query)}」に近い名前で一致(表記ゆれの可能性)</div>` : ''}
-        ${g.note ? `<div class="note">${escapeHtml(g.note)}</div>` : ''}
-        ${links.length ? `<div class="links">${links.map((l) => `<a class="link-btn" href="${escapeAttr(l.href)}" target="_blank" rel="noopener noreferrer">${l.label} ↗</a>`).join('')}</div>` : ''}
-        <div class="chips">
-          <span class="chip ${photo.cls}">静止画 ${photo.label}</span>
-          <span class="chip ${video.cls}">動画 ${video.label}</span>
-        </div>
+        ${hasDetail ? `
+        <div class="card-detail">
+          <div class="status-line">
+            <span><span class="label">静止画</span>${photo.label}</span>
+            <span><span class="label">動画</span>${video.label}</span>
+          </div>
+          ${showQueryNote ? `<div class="query-note">入力: 「${escapeHtml(g.query)}」に近い名前で一致(表記ゆれの可能性)</div>` : ''}
+          ${g.note ? `<div class="note">${escapeHtml(g.note)}</div>` : ''}
+          ${links.length ? `<div class="links">${links.map((l) => `<a class="link-btn" href="${escapeAttr(l.href)}" target="_blank" rel="noopener noreferrer">${l.label} ↗</a>`).join('')}</div>` : ''}
+        </div>` : ''}
       </div>
     `;
   }
@@ -753,7 +743,7 @@
         <h2>照合結果 (${currentGroups.length})</h2>
         ${currentPageTitle ? `<div class="page-title">${escapeHtml(currentPageTitle)}</div>` : ''}
       </div>
-      ${currentGroups.length > 1 ? '<div class="reorder-hint">⠿ をドラッグ、または ▲▼ ボタンでタイムテーブル順に並べ替えできます</div>' : ''}
+      ${currentGroups.length > 1 ? '<div class="reorder-hint">⠿ をドラッグしてタイムテーブル順に並べ替え、行をタップで詳細表示</div>' : ''}
     `;
 
     const cards = currentGroups.length
@@ -771,9 +761,9 @@
       card.addEventListener('dragover', onDragOver);
       card.addEventListener('dragleave', onDragLeave);
       card.addEventListener('drop', onDrop);
-    });
-    resultsEl.querySelectorAll('[data-action]').forEach((btn) => {
-      btn.addEventListener('click', onMoveClick);
+
+      const row = card.querySelector('[data-role="toggle"]');
+      if (row) row.addEventListener('click', () => card.classList.toggle('expanded'));
     });
   }
 
@@ -807,15 +797,6 @@
     const [moved] = currentGroups.splice(dragSrcIndex, 1);
     currentGroups.splice(targetIndex, 0, moved);
     dragSrcIndex = null;
-    draw();
-  }
-
-  function onMoveClick(e) {
-    const btn = e.currentTarget;
-    const index = Number(btn.dataset.index);
-    const target = btn.dataset.action === 'up' ? index - 1 : index + 1;
-    if (target < 0 || target >= currentGroups.length) return;
-    [currentGroups[index], currentGroups[target]] = [currentGroups[target], currentGroups[index]];
     draw();
   }
 
