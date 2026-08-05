@@ -372,6 +372,48 @@ app.post("/api/lookup", async (req, res) => {
       $('meta[property="og:description"]').attr("content") ||
       "";
     const pageTitle = $("title").first().text().trim();
+    const ogTitle = $('meta[property="og:title"]').attr("content") || "";
+    let ogImage = $('meta[property="og:image"]').attr("content") || "";
+    if (ogImage) {
+      try {
+        ogImage = new URL(ogImage, url).href; // 相対URLを絶対URLに解決
+      } catch (e) {
+        ogImage = "";
+      }
+    }
+
+    // 日付らしき文字列をページ内から簡易的に検索(保証はできない)
+    let eventDate = "";
+    const dateMatch = rawText.match(
+      /\d{4}[\/年]\s?\d{1,2}[\/月]\s?\d{1,2}日?(?:\([月火水木金土日]\))?/
+    );
+    if (dateMatch) eventDate = dateMatch[0];
+
+    // 「会場：」「開催場所：」等のラベル近くから会場名を簡易的に取得(保証はできない)
+    let venue = "";
+    const venueLines = rawText.split("\n");
+    for (let i = 0; i < venueLines.length; i++) {
+      const m = venueLines[i].match(/^[◾◻■□]?\s*(?:会場|開催場所)\s*[:：]\s*(.*)$/);
+      if (m) {
+        venue = (m[1] || "").trim();
+        if (!venue) {
+          for (let j = i + 1; j < venueLines.length; j++) {
+            if (venueLines[j].trim()) {
+              venue = venueLines[j].trim();
+              break;
+            }
+          }
+        }
+        break;
+      }
+    }
+
+    const eventInfo = {
+      title: ogTitle || pageTitle,
+      image: ogImage,
+      date: eventDate,
+      venue,
+    };
 
     let hostname = "";
     try {
@@ -428,6 +470,7 @@ app.post("/api/lookup", async (req, res) => {
       ok: true,
       url,
       pageTitle,
+      eventInfo,
       matchedCount: unique.length,
       groups: unique,
       dbTotal: groups.length,
