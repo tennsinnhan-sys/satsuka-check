@@ -1160,6 +1160,7 @@
             g.photo = g._original.photo;
             g.video = g._original.video;
             g.note = g._original.note;
+            g._unknown = !!g._original._unknown;
             delete g._original;
             delete g._overridden;
           }
@@ -1190,10 +1191,10 @@
       if (row) {
         row.addEventListener('click', () => {
           const idx = Number(card.dataset.index);
-          if (currentGroups[idx] && currentGroups[idx]._unknown) return;
+          const g = currentGroups[idx];
           if (editMode) {
             openEditModal(idx);
-          } else {
+          } else if (!g || !g._unknown) {
             card.classList.toggle('expanded');
           }
         });
@@ -1276,12 +1277,13 @@
 
     editModalSave.onclick = () => {
       if (!g._overridden) {
-        g._original = { photo: g.photo, video: g.video, note: g.note };
+        g._original = { photo: g.photo, video: g.video, note: g.note, _unknown: g._unknown };
       }
       g.photo = selectedPhoto;
       g.video = selectedVideo;
       g.note = editMemo.value.trim();
       g._overridden = true;
+      g._unknown = false;
       if (currentEditUrl) {
         setEditForGroup(currentEditUrl, g.name, { photo: g.photo, video: g.video, note: g.note });
       }
@@ -1294,6 +1296,7 @@
         g.photo = g._original.photo;
         g.video = g._original.video;
         g.note = g._original.note;
+        g._unknown = !!g._original._unknown;
         delete g._original;
         delete g._overridden;
       }
@@ -1398,14 +1401,14 @@
       let restoredCount = 0;
       if (savedEdits) {
         for (const g of currentGroups) {
-          if (g._unknown) continue;
           const saved = savedEdits.groups[g.name];
           if (saved) {
-            g._original = { photo: g.photo, video: g.video, note: g.note };
+            g._original = { photo: g.photo, video: g.video, note: g.note, _unknown: g._unknown };
             g.photo = saved.photo;
             g.video = saved.video;
             g.note = saved.note;
             g._overridden = true;
+            g._unknown = false;
             restoredCount++;
           }
         }
