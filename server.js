@@ -351,7 +351,7 @@ app.post("/api/lookup", async (req, res) => {
       if (!seen.has(m.name)) {
         seen.add(m.name);
         const { _pos, ...rest } = m;
-        unique.push(rest);
+        unique.push({ ...rest, pagePos: _pos });
       }
     }
 
@@ -364,8 +364,12 @@ app.post("/api/lookup", async (req, res) => {
       const norm = normalizeStr(c).toLowerCase();
       if (!norm || seenCandidate.has(norm)) continue;
       seenCandidate.add(norm);
-      if (!dbNameSet.has(norm)) unknownOnPage.push(c);
+      if (!dbNameSet.has(norm)) {
+        const pos = pageText.indexOf(c);
+        unknownOnPage.push({ name: c, pagePos: pos === -1 ? Number.MAX_SAFE_INTEGER : pos });
+      }
     }
+    unknownOnPage.sort((a, b) => a.pagePos - b.pagePos);
 
     res.json({
       ok: true,

@@ -236,16 +236,25 @@
     padding: 16px 18px;
   }
   .not-found h3 {
-    margin: 0 0 10px;
+    margin: 0;
     font-family: 'Barlow Condensed', sans-serif;
     font-size: 15px;
     font-weight: 600;
     color: var(--ink-dim);
   }
+  .not-found-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+  }
+  .not-found-toggle .chevron { color: #565a6b; font-size: 10px; }
+  .not-found-toggle.open .chevron { transform: rotate(90deg); color: var(--flash); }
   .not-found .tags {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+    margin-top: 12px;
   }
   .not-found .tags span {
     font-family: 'JetBrains Mono', monospace;
@@ -260,6 +269,20 @@
     background: rgba(79,195,217,0.08);
     border: 1px solid rgba(79,195,217,0.3);
     color: var(--partial);
+  }
+
+  .card.unknown-card {
+    background: rgba(79,195,217,0.05);
+    border-style: dashed;
+    border-color: rgba(79,195,217,0.35);
+  }
+  .unknown-name { color: var(--partial) !important; }
+  .unknown-tag {
+    color: var(--ink-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .perf {
@@ -558,6 +581,7 @@
     font-family: 'JetBrains Mono', monospace;
     font-size: 10.5px;
     font-weight: 700;
+    position: relative;
   }
   .badge.ok       { background: rgba(111,207,151,0.14); color: var(--ok); }
   .badge.ng       { background: rgba(239,111,111,0.14); color: var(--ng); }
@@ -565,6 +589,30 @@
   .badge.heroines { background: rgba(236,127,196,0.14); color: var(--heroines); }
   .badge.partial  { background: rgba(79,195,217,0.14); color: var(--partial); }
   .badge.unk      { background: rgba(154,157,176,0.14); color: var(--ink-dim); }
+  .badge.icon     { font-size: 12px; font-weight: 400; }
+  .badge.text-badge {
+    width: auto;
+    min-width: 21px;
+    padding: 0 6px;
+    font-size: 9px;
+    font-weight: 700;
+  }
+  .badge-mark {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--maybe);
+    color: var(--stage);
+    font-size: 8px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
 
   .chevron {
     color: #565a6b;
@@ -959,19 +1007,44 @@
   let currentUnknownOnPage = [];
 
   function chipInfo(value) {
-    if (value === '可') return { cls: 'ok', label: '可' };
-    if (value === '可※') return { cls: 'partial', label: '可※' };
-    if (value === '不可') return { cls: 'ng', label: '不可' };
-    if (value === '※') return { cls: 'maybe', label: '要確認' };
-    if (value === 'HEROINES') return { cls: 'heroines', label: 'HEROINES' };
-    return { cls: 'unk', label: '不明' };
+    if (value === '可') return { cls: 'ok', icon: '○', label: '可' };
+    if (value === '可※') return { cls: 'ok', icon: '○', mark: '!', label: '可※' };
+    if (value === '不可') return { cls: 'ng', icon: '✕', label: '不可' };
+    if (value === '※') return { cls: 'maybe', icon: '△', label: '要確認' };
+    if (value === '一眼') return { cls: 'ok', icon: '📷', label: '一眼のみ可' };
+    if (value === 'スマホ') return { cls: 'ok', icon: '📱', label: 'スマホのみ可' };
+    if (value === 'HEROINES') return { cls: 'heroines', text: 'HEROINES', label: 'HEROINES' };
+    return { cls: 'unk', icon: '?', label: '不明' };
+  }
+
+  function renderBadge(info) {
+    if (info.text) {
+      return `<span class="badge ${info.cls} text-badge" title="${escapeAttr(info.label)}">${escapeHtml(info.text)}</span>`;
+    }
+    const mark = info.mark ? `<span class="badge-mark">${escapeHtml(info.mark)}</span>` : '';
+    return `<span class="badge ${info.cls} icon" title="${escapeAttr(info.label)}">${info.icon}${mark}</span>`;
   }
 
   function isUrl(s) {
     return typeof s === 'string' && /^https?:\/\//i.test(s);
   }
 
+  function renderUnknownCard(g, index) {
+    return `
+      <div class="card unknown-card" draggable="true" data-index="${index}">
+        <div class="card-row" data-role="toggle">
+          <span class="handle" title="ドラッグで並べ替え">⠿</span>
+          <span class="order-num">${index + 1}</span>
+          <span class="card-name unknown-name">${escapeHtml(g.name)}</span>
+          <span class="unknown-tag">未登録</span>
+        </div>
+      </div>
+    `;
+  }
+
   function renderCard(g, index, total) {
+    if (g._unknown) return renderUnknownCard(g, index);
+
     const photo = chipInfo(g.photo);
     const video = chipInfo(g.video);
     const showQueryNote = g.matchType === 'fuzzy' && g.query && g.query !== g.name;
@@ -991,8 +1064,8 @@
           <span class="card-name">${escapeHtml(g.name)}</span>
           ${g._overridden ? '<span class="edit-mark" title="この場限定で編集済み">✎</span>' : ''}
           <div class="badge-group">
-            <span class="badge ${photo.cls}" title="静止画: ${photo.label}">静</span>
-            <span class="badge ${video.cls}" title="動画: ${video.label}">動</span>
+            ${renderBadge(photo)}
+            ${renderBadge(video)}
           </div>
           ${hasDetail ? '<span class="chevron">▸</span>' : '<span class="chevron" style="visibility:hidden;">▸</span>'}
         </div>
@@ -1005,6 +1078,7 @@
           ${showQueryNote ? `<div class="query-note">入力: 「${escapeHtml(g.query)}」に近い名前で一致(表記ゆれの可能性)</div>` : ''}
           ${g.note ? `<div class="note">${escapeHtml(g.note)}</div>` : ''}
           ${links.length ? `<div class="links">${links.map((l) => `<a class="link-btn" href="${escapeAttr(l.href)}" target="_blank" rel="noopener noreferrer">${l.label} ↗</a>`).join('')}</div>` : ''}
+
         </div>` : ''}
       </div>
     `;
@@ -1024,8 +1098,11 @@
     if (!list || list.length === 0) return '';
     return `
       <div class="not-found unknown-on-page">
-        <h3>ページに記載があるがDB未登録 (${list.length})</h3>
-        <div class="tags">${list.map((t) => `<span>${escapeHtml(t)}</span>`).join('')}</div>
+        <div class="not-found-toggle" data-role="unknown-toggle">
+          <h3>ページに記載があるがDB未登録 (${list.length})</h3>
+          <span class="chevron">▸</span>
+        </div>
+        <div class="tags" style="display:none;">${list.map((t) => `<span>${escapeHtml(t)}</span>`).join('')}</div>
       </div>
     `;
   }
@@ -1039,9 +1116,12 @@
     const savedEditsForCurrentUrl = currentEditUrl ? getEditsForUrl(currentEditUrl) : null;
     const showClearAll = editMode && savedEditsForCurrentUrl && Object.keys(savedEditsForCurrentUrl.groups).length > 0;
 
+    const matchedCount = currentGroups.filter((g) => !g._unknown).length;
+    const unknownInlineCount = currentGroups.filter((g) => g._unknown).length;
+
     const head = `
       <div class="result-head">
-        <h2>照合結果 (${currentGroups.length})</h2>
+        <h2>照合結果 (${matchedCount})${unknownInlineCount > 0 ? ` <span class="page-title">+ 未登録${unknownInlineCount}件</span>` : ''}</h2>
         ${currentPageTitle ? `<div class="page-title">${escapeHtml(currentPageTitle)}</div>` : ''}
         <div class="result-head-controls">
           ${showClearAll ? '<span class="clear-all-link" id="clearAllEdits">このURLの編集を全消去</span>' : ''}
@@ -1087,6 +1167,15 @@
         draw();
       });
     }
+
+    const unknownToggleEl = document.querySelector('[data-role="unknown-toggle"]');
+    if (unknownToggleEl) {
+      unknownToggleEl.addEventListener('click', () => {
+        const tagsEl = unknownToggleEl.parentElement.querySelector('.tags');
+        const isOpen = unknownToggleEl.classList.toggle('open');
+        if (tagsEl) tagsEl.style.display = isOpen ? 'flex' : 'none';
+      });
+    }
   }
 
   function attachCardEvents() {
@@ -1100,8 +1189,10 @@
       const row = card.querySelector('[data-role="toggle"]');
       if (row) {
         row.addEventListener('click', () => {
+          const idx = Number(card.dataset.index);
+          if (currentGroups[idx] && currentGroups[idx]._unknown) return;
           if (editMode) {
-            openEditModal(Number(card.dataset.index));
+            openEditModal(idx);
           } else {
             card.classList.toggle('expanded');
           }
@@ -1146,7 +1237,9 @@
   // ---- 編集モード: この場限定の一時上書き(DBには反映しない、画面表示のみ) ----
   const STATUS_OPTIONS = [
     { value: '可', cls: 'ok' },
-    { value: '可※', cls: 'partial' },
+    { value: '可※', cls: 'ok' },
+    { value: '一眼', cls: 'ok' },
+    { value: 'スマホ', cls: 'ok' },
     { value: '不可', cls: 'ng' },
     { value: '※', cls: 'maybe' },
     { value: 'HEROINES', cls: 'heroines' },
@@ -1288,16 +1381,24 @@
 
       dbCountEl.textContent = data.dbTotal;
 
-      currentGroups = data.groups;
+      const unknownEntries = data.unknownOnPage || [];
+      const merged = [
+        ...data.groups.map((g) => ({ ...g, _unknown: false })),
+        ...unknownEntries.map((u) => ({ name: u.name, pagePos: u.pagePos, _unknown: true })),
+      ];
+      merged.sort((a, b) => (a.pagePos ?? 0) - (b.pagePos ?? 0));
+
+      currentGroups = merged;
       currentNotFound = [];
       currentPageTitle = data.pageTitle || '';
       currentEditUrl = url;
-      currentUnknownOnPage = data.unknownOnPage || [];
+      currentUnknownOnPage = unknownEntries.map((u) => u.name);
 
       const savedEdits = getEditsForUrl(url);
       let restoredCount = 0;
       if (savedEdits) {
         for (const g of currentGroups) {
+          if (g._unknown) continue;
           const saved = savedEdits.groups[g.name];
           if (saved) {
             g._original = { photo: g.photo, video: g.video, note: g.note };
