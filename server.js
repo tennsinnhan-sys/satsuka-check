@@ -296,12 +296,40 @@ function extractLivePocket(rawText) {
   return [];
 }
 
+function extractLtike(rawText) {
+  // 「詳細」内の「出演：」以降、複数行にわたって続き、
+  // 「※」で始まる注意書きなどに到達したら終了。
+  // 「□：」のような回数区切りの記号だけの行は無視する。
+  const lines = rawText.split("\n");
+  const markerRe = /^出演\s*[:：]/;
+  const idx = lines.findIndex((l) => markerRe.test(l.trim()));
+  if (idx === -1) return [];
+
+  const collected = [];
+  for (let j = idx + 1; j < lines.length && collected.length < 400; j++) {
+    const line = lines[j].trim();
+    if (!line) continue;
+    if (/^[※【]/.test(line)) break;
+    if (/^-{3,}/.test(line)) break;
+    const strippedForCheck = line.replace(/[:：]/g, "").trim();
+    if (!/[a-zA-Z0-9ぁ-んァ-ヶー一-龠]/.test(strippedForCheck)) continue;
+    collected.push(line);
+  }
+
+  const names = [];
+  for (const line of collected) {
+    names.push(...splitPerformerLine(line));
+  }
+  return names;
+}
+
 function extractCandidatesFromSite(hostname, rawText, metaDesc) {
   if (!hostname) return [];
   if (hostname === "livepocket.jp") return extractLivePocket(rawText);
   if (hostname === "ticketvillage.jp") return extractTicketVillage(rawText);
   if (hostname === "ticketdive.com") return extractTicketDive(rawText, metaDesc);
   if (hostname === "tiget.net") return extractTiget(rawText);
+  if (hostname === "l-tike.com") return extractLtike(rawText);
   return [];
 }
 
