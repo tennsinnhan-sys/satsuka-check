@@ -172,6 +172,17 @@ function matchListAgainstGroups(tokens, groups) {
 
 // ---- API ----
 
+// オフライン時にクライアント側でキャッシュして使うための、DB全件返却API
+app.get("/api/groups", async (req, res) => {
+  try {
+    const groups = await getGroups();
+    res.json({ ok: true, groups, dbTotal: groups.length, fetchedAt: Date.now() });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 app.post("/api/refresh", async (req, res) => {
   try {
     const groups = await getGroups(true);

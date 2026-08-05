@@ -4,6 +4,10 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>撮可チェック | Satsuka Check</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#12141c">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -92,6 +96,34 @@
     cursor: pointer;
   }
   .db-badge button:hover { border-color: var(--flash); color: var(--flash); }
+  .db-badge .cache-note {
+    display: block;
+    margin-top: 4px;
+    font-size: 10.5px;
+    color: #565a6b;
+  }
+
+  .offline-banner {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    background: rgba(242, 201, 76, 0.10);
+    border: 1px solid rgba(242, 201, 76, 0.35);
+    color: var(--maybe);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 22px;
+  }
+  .offline-banner.show { display: flex; }
+  .offline-banner .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--maybe);
+    flex-shrink: 0;
+  }
 
   /* --- ticket-stub input card --- */
   .stub {
@@ -459,8 +491,14 @@
       <div class="db-badge">
         DB件数: <span id="dbCount">—</span> 件
         <button id="refreshBtn" type="button">DBを再取得</button>
+        <span class="cache-note" id="cacheNote"></span>
       </div>
     </header>
+
+    <div class="offline-banner" id="offlineBanner">
+      <span class="dot"></span>
+      <span>オフラインです — 端末に保存済みのDBデータでグループ名リスト照合のみ利用できます(チケットURL照合はオンライン時のみ)</span>
+    </div>
 
     <div class="tabs">
       <button type="button" class="tab active" id="tabUrl">チケットURLで照合</button>
@@ -489,7 +527,7 @@
 
     <div id="results"></div>
 
-    <footer>グループ名がページ本文にそのまま含まれるかで判定する簡易照合です。表記ゆれ等で漏れる場合があります。最終確認は各グループの公式Xで。</footer>
+    <footer>グループ名がページ本文にそのまま含まれるかで判定する簡易照合です。表記ゆれ等で漏れる場合があります。最終確認は各グループの公式Xで。<br>一度オンラインで開いておくと、グループ名リスト照合はオフラインでも利用できます(端末にDBを保存)。</footer>
   </div>
 
 <script>
@@ -505,6 +543,131 @@
   const resultsEl = document.getElementById('results');
   const dbCountEl = document.getElementById('dbCount');
   const refreshBtn = document.getElementById('refreshBtn');
+  const cacheNoteEl = document.getElementById('cacheNote');
+  const offlineBanner = document.getElementById('offlineBanner');
+
+  // ---- Service Worker登録(オフラインでもアプリの画面自体は開けるようにする) ----
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
+
+  // ---- オフライン時に使うDBスナップショットのキャッシュ(localStorage) ----
+  const GROUPS_CACHE_KEY = 'satsuka_check_groups_cache_v1';
+
+  function saveGroupsCache(groups) {
+    try {
+      localStorage.setItem(
+        GROUPS_CACHE_KEY,
+        JSON.stringify({ groups, cachedAt: Date.now() })
+      );
+    } catch (e) {
+      // 保存容量オーバー等は無視(オフライン機能が使えないだけで致命的ではない)
+    }
+  }
+
+  function loadGroupsCache() {
+    try {
+      const raw = localStorage.getItem(GROUPS_CACHE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function formatCachedAt(ts) {
+    const d = new Date(ts);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  async function refreshGroupsCache() {
+    try {
+      const res = await fetch('/api/groups');
+      const data = await res.json();
+      if (data.ok) {
+        saveGroupsCache(data.groups);
+        updateCacheNote();
+      }
+    } catch (e) {
+      // オフライン時は単に更新できないだけ(既存キャッシュを使い続ける)
+    }
+  }
+
+  function updateCacheNote() {
+    const cache = loadGroupsCache();
+    cacheNoteEl.textContent = cache
+      ? `オフライン用保存: ${formatCachedAt(cache.cachedAt)}時点`
+      : '';
+  }
+
+  // ---- オフライン/オンライン状態の検知 ----
+  function updateOnlineStatus() {
+    offlineBanner.classList.toggle('show', !navigator.onLine);
+  }
+  window.addEventListener('online', updateOnlineStatus);
+  window.addEventListener('offline', updateOnlineStatus);
+
+  // ---- クライアント側でのグループ名リスト照合(オフライン時のフォールバック) ----
+  function normalizeStrClient(s) {
+    return (s || '').normalize('NFKC').trim();
+  }
+
+  function splitGroupListClient(text) {
+    return text
+      .split(/\r?\n/)
+      .flatMap((line) => line.split(/\s+\/\s+/))
+      .map((s) => normalizeStrClient(s))
+      .filter(Boolean);
+  }
+
+  function matchListAgainstGroupsClient(tokens, groups) {
+    const results = [];
+    const notFound = [];
+
+    for (const token of tokens) {
+      const normToken = normalizeStrClient(token).toLowerCase();
+      if (!normToken) continue;
+
+      let match = groups.find(
+        (g) => normalizeStrClient(g.name).toLowerCase() === normToken
+      );
+      let matchType = 'exact';
+
+      if (!match) {
+        match = groups.find(
+          (g) => g.reading && normalizeStrClient(g.reading).toLowerCase() === normToken
+        );
+        matchType = 'exact-reading';
+      }
+
+      if (!match) {
+        match = groups.find((g) => {
+          const gn = normalizeStrClient(g.name).toLowerCase();
+          return gn.length >= 2 && normToken.length >= 2 && (gn.includes(normToken) || normToken.includes(gn));
+        });
+        matchType = 'fuzzy';
+      }
+
+      if (match) {
+        results.push({ ...match, query: token, matchType });
+      } else {
+        notFound.push(token);
+      }
+    }
+
+    const seen = new Set();
+    const unique = [];
+    for (const r of results) {
+      if (!seen.has(r.name)) {
+        seen.add(r.name);
+        unique.push(r);
+      }
+    }
+
+    return { matched: unique, notFound };
+  }
 
   function switchTab(mode) {
     const isUrl = mode === 'url';
@@ -676,9 +839,16 @@
       if (data.ok) {
         dbCountEl.textContent = data.count;
       }
+      await refreshGroupsCache();
     } catch (e) {
-      // ignore, badge will just stay as-is
+      // オフライン等で取得できない場合は、保存済みキャッシュの件数を表示
+      const cache = loadGroupsCache();
+      if (cache) {
+        dbCountEl.textContent = `${cache.groups.length}(保存分)`;
+      }
     } finally {
+      updateCacheNote();
+      updateOnlineStatus();
       refreshBtn.disabled = false;
       refreshBtn.textContent = 'DBを再取得';
     }
@@ -720,7 +890,9 @@
       draw();
     } catch (err) {
       statusEl.className = 'error';
-      statusEl.textContent = 'エラーが発生しました: ' + err.message;
+      statusEl.textContent = navigator.onLine
+        ? 'エラーが発生しました: ' + err.message
+        : 'オフラインのため、チケットページを取得できません。グループ名リストでの照合をお試しください。';
     } finally {
       goBtn.disabled = false;
       goBtn.textContent = '照合する';
@@ -760,15 +932,38 @@
       currentPageTitle = '';
       draw();
     } catch (err) {
-      statusEl.className = 'error';
-      statusEl.textContent = 'エラーが発生しました: ' + err.message;
+      // サーバーに届かない(オフライン等) → 端末保存のDBスナップショットで代わりに照合
+      const cache = loadGroupsCache();
+      if (!cache) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'オフラインで、かつ保存済みのDBデータがありません。一度オンラインの状態でこの画面を開いてください。';
+        return;
+      }
+
+      const tokens = splitGroupListClient(text);
+      if (tokens.length === 0) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'グループ名を認識できませんでした';
+        return;
+      }
+
+      const { matched, notFound } = matchListAgainstGroupsClient(tokens, cache.groups);
+      dbCountEl.textContent = `${cache.groups.length}(保存分)`;
+      statusEl.textContent = `オフライン照合 — 入力${tokens.length}件中 ${matched.length}件が保存済みDB(${formatCachedAt(cache.cachedAt)}時点)に一致`;
+
+      currentGroups = matched;
+      currentNotFound = notFound;
+      currentPageTitle = '';
+      draw();
     } finally {
       listGoBtn.disabled = false;
       listGoBtn.textContent = '照合する';
     }
   });
 
-  // 初回ロード時にDB件数だけ軽く取得しておく
+  // 初回ロード時にDB件数を取得し、オフライン用キャッシュも更新しておく
+  updateOnlineStatus();
+  updateCacheNote();
   runRefresh();
 </script>
 </body>
