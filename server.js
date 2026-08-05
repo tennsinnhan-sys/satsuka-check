@@ -114,6 +114,28 @@ function splitGroupList(text) {
     .filter(Boolean);
 }
 
+// "LilyS/ash" のようにスラッシュを含むDB登録名が、サイト側の表記ゆれで
+// "LilyS" "ash" のように分割されてしまった場合に、DBの実名と突き合わせて復元する
+function mergeKnownSlashNames(tokens, groups) {
+  if (!tokens || tokens.length < 2) return tokens || [];
+  const dbNameSet = new Set(groups.map((g) => normalizeStr(g.name).toLowerCase()));
+  const result = [];
+  let i = 0;
+  while (i < tokens.length) {
+    if (i + 1 < tokens.length) {
+      const combined = `${tokens[i]}/${tokens[i + 1]}`;
+      if (dbNameSet.has(normalizeStr(combined).toLowerCase())) {
+        result.push(combined);
+        i += 2;
+        continue;
+      }
+    }
+    result.push(tokens[i]);
+    i += 1;
+  }
+  return result;
+}
+
 function matchListAgainstGroups(tokens, groups) {
   const results = [];
   const notFound = [];
@@ -358,7 +380,8 @@ app.post("/api/lookup", async (req, res) => {
     }
 
     // サイト別ルールでページ上の出演者名を抽出し、DB未登録のものだけ拾う(DBは変更しない)
-    const candidates = extractCandidatesFromSite(hostname, rawText, metaDesc);
+    const rawCandidates = extractCandidatesFromSite(hostname, rawText, metaDesc);
+    const candidates = mergeKnownSlashNames(rawCandidates, groups);
     const dbNameSet = new Set(groups.map((g) => normalizeStr(g.name).toLowerCase()));
     const unknownOnPage = [];
     const seenCandidate = new Set();
@@ -404,11 +427,12 @@ app.post("/api/lookup-list", async (req, res) => {
     }
 
     const groups = await getGroups();
-    const { matched, notFound } = matchListAgainstGroups(tokens, groups);
+    const mergedTokens = mergeKnownSlashNames(tokens, groups);
+    const { matched, notFound } = matchListAgainstGroups(mergedTokens, groups);
 
     res.json({
       ok: true,
-      tokenCount: tokens.length,
+      tokenCount: mergedTokens.length,
       matchedCount: matched.length,
       groups: matched,
       notFound,

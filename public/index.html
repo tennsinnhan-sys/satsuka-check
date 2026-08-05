@@ -931,6 +931,26 @@
       .filter(Boolean);
   }
 
+  function mergeKnownSlashNamesClient(tokens, groups) {
+    if (!tokens || tokens.length < 2) return tokens || [];
+    const dbNameSet = new Set(groups.map((g) => normalizeStrClient(g.name).toLowerCase()));
+    const result = [];
+    let i = 0;
+    while (i < tokens.length) {
+      if (i + 1 < tokens.length) {
+        const combined = `${tokens[i]}/${tokens[i + 1]}`;
+        if (dbNameSet.has(normalizeStrClient(combined).toLowerCase())) {
+          result.push(combined);
+          i += 2;
+          continue;
+        }
+      }
+      result.push(tokens[i]);
+      i += 1;
+    }
+    return result;
+  }
+
   function matchListAgainstGroupsClient(tokens, groups) {
     const results = [];
     const notFound = [];
@@ -1479,9 +1499,10 @@
         return;
       }
 
-      const { matched, notFound } = matchListAgainstGroupsClient(tokens, cache.groups);
+      const mergedTokens = mergeKnownSlashNamesClient(tokens, cache.groups);
+      const { matched, notFound } = matchListAgainstGroupsClient(mergedTokens, cache.groups);
       dbCountEl.textContent = `${cache.groups.length}(保存分)`;
-      statusEl.textContent = `オフライン照合 — 入力${tokens.length}件中 ${matched.length}件が保存済みDB(${formatCachedAt(cache.cachedAt)}時点)に一致`;
+      statusEl.textContent = `オフライン照合 — 入力${mergedTokens.length}件中 ${matched.length}件が保存済みDB(${formatCachedAt(cache.cachedAt)}時点)に一致`;
 
       currentGroups = matched;
       currentNotFound = notFound;
