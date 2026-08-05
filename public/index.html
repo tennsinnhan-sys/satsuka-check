@@ -256,6 +256,11 @@
     padding: 4px 9px;
     border-radius: 6px;
   }
+  .unknown-on-page .tags span {
+    background: rgba(79,195,217,0.08);
+    border: 1px solid rgba(79,195,217,0.3);
+    color: var(--partial);
+  }
 
   .perf {
     width: 100%;
@@ -937,6 +942,7 @@
     currentGroups = [];
     currentNotFound = [];
     currentPageTitle = '';
+    currentUnknownOnPage = [];
   }
 
   tabUrl.addEventListener('click', () => switchTab('url'));
@@ -950,6 +956,7 @@
   let editMode = false;
   let editingIndex = null;
   let currentEditUrl = null;
+  let currentUnknownOnPage = [];
 
   function chipInfo(value) {
     if (value === '可') return { cls: 'ok', label: '可' };
@@ -1013,6 +1020,16 @@
     `;
   }
 
+  function renderUnknownOnPage(list) {
+    if (!list || list.length === 0) return '';
+    return `
+      <div class="not-found unknown-on-page">
+        <h3>ページに記載があるがDB未登録 (${list.length})</h3>
+        <div class="tags">${list.map((t) => `<span>${escapeHtml(t)}</span>`).join('')}</div>
+      </div>
+    `;
+  }
+
   function draw() {
     if (currentGroups.length === 0 && currentNotFound.length === 0) {
       resultsEl.innerHTML = `<div class="empty">一致するグループが見つかりませんでした。<br>表記ゆれ、または未登録グループの可能性があります。</div>`;
@@ -1041,7 +1058,7 @@
       ? `<div class="cards">${currentGroups.map((g, i) => renderCard(g, i, currentGroups.length)).join('')}</div>`
       : `<div class="empty">一致するグループが見つかりませんでした。</div>`;
 
-    resultsEl.innerHTML = head + cards + renderNotFound(currentNotFound);
+    resultsEl.innerHTML = head + cards + renderNotFound(currentNotFound) + renderUnknownOnPage(currentUnknownOnPage);
     attachCardEvents();
 
     const toggleEl = document.getElementById('editModeToggle');
@@ -1275,6 +1292,7 @@
       currentNotFound = [];
       currentPageTitle = data.pageTitle || '';
       currentEditUrl = url;
+      currentUnknownOnPage = data.unknownOnPage || [];
 
       const savedEdits = getEditsForUrl(url);
       let restoredCount = 0;
@@ -1339,6 +1357,7 @@
       currentNotFound = data.notFound || [];
       currentPageTitle = '';
       currentEditUrl = null;
+      currentUnknownOnPage = [];
       draw();
     } catch (err) {
       // サーバーに届かない(オフライン等) → 端末保存のDBスナップショットで代わりに照合
@@ -1364,6 +1383,7 @@
       currentNotFound = notFound;
       currentPageTitle = '';
       currentEditUrl = null;
+      currentUnknownOnPage = [];
       draw();
     } finally {
       listGoBtn.disabled = false;

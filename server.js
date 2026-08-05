@@ -193,6 +193,96 @@ app.post("/api/refresh", async (req, res) => {
   }
 });
 
+// ---- チケットサイト別: 出演者名の抽出ルール ----
+// (DBに登録済みかどうかの判定に使うだけで、DB自体は書き換えない)
+
+function splitPerformerLine(line) {
+  return line
+    .split(/\s+\/\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function extractTiget(rawText) {
+  const lines = rawText.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim() === "出演者" || lines[i].trim() === "出演") {
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim()) return splitPerformerLine(lines[j].trim());
+      }
+    }
+  }
+  return [];
+}
+
+function extractTicketDive(rawText, metaDesc) {
+  // 1) meta description の【出演者】…パターンを優先(一番ノイズが少ない)
+  const m = (metaDesc || "").match(/【出演者】([^【]+)/);
+  if (m) return splitPerformerLine(m[1].trim());
+
+  // 2) 本文の［出演者］見出しの次行にフォールバック
+  const lines = rawText.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (/^[［\[]出演者[］\]]$/.test(lines[i].trim())) {
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim()) return splitPerformerLine(lines[j].trim());
+      }
+    }
+  }
+  return [];
+}
+
+function extractTicketVillage(rawText) {
+  const markerRe = /[◾◻■□]?\s*出演(?:者)?\s*[:：]/;
+  const lines = rawText.split("\n");
+  const idx = lines.findIndex((l) => markerRe.test(l));
+  if (idx === -1) return [];
+
+  const collected = [];
+  const firstLineRest = lines[idx].replace(markerRe, "").trim();
+  if (firstLineRest) collected.push(firstLineRest);
+
+  for (let j = idx + 1; j < lines.length; j++) {
+    const line = lines[j].trim();
+    if (!line) continue;
+    if (/^[◾◻■□]/.test(line)) break; // 次の項目(◾時間 など)に到達したら終了
+    collected.push(line);
+  }
+
+  const names = [];
+  for (const line of collected) {
+    // "第1弾：" "第2弾：" のような接頭辞を除去
+    const cleaned = line.replace(/^第[0-9０-９]+弾\s*[:：]\s*/, "");
+    names.push(...splitPerformerLine(cleaned));
+  }
+  return names;
+}
+
+function extractLivePocket(rawText) {
+  // 概要の「出演者」ラベルの右側(または直後の行)に掲載されている想定
+  const lines = rawText.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line === "出演者") {
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim()) return splitPerformerLine(lines[j].trim());
+      }
+    }
+    const inline = line.match(/^出演者\s*[:：]?\s*(.+)$/);
+    if (inline && inline[1]) return splitPerformerLine(inline[1]);
+  }
+  return [];
+}
+
+function extractCandidatesFromSite(hostname, rawText, metaDesc) {
+  if (!hostname) return [];
+  if (hostname === "livepocket.jp") return extractLivePocket(rawText);
+  if (hostname === "ticketvillage.jp") return extractTicketVillage(rawText);
+  if (hostname === "ticketdive.com") return extractTicketDive(rawText, metaDesc);
+  if (hostname === "tiget.net") return extractTiget(rawText);
+  return [];
+}
+
 app.post("/api/lookup", async (req, res) => {
   const { url } = req.body || {};
 
@@ -219,7 +309,24 @@ app.post("/api/lookup", async (req, res) => {
     const $ = cheerio.load(html);
     $("script, style, noscript, template").remove();
     const pageText = $("body").text().replace(/\s+/g, " ");
+    const rawText = $("body")
+      .text()
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .join("\n");
+    const metaDesc =
+      $('meta[name="description"]').attr("content") ||
+      $('meta[property="og:description"]').attr("content") ||
+      "";
     const pageTitle = $("title").first().text().trim();
+
+    let hostname = "";
+    try {
+      hostname = new URL(url).hostname.replace(/^www\./, "");
+    } catch (e) {
+      // ignore
+    }
 
     const groups = await getGroups();
 
@@ -248,6 +355,18 @@ app.post("/api/lookup", async (req, res) => {
       }
     }
 
+    // サイト別ルールでページ上の出演者名を抽出し、DB未登録のものだけ拾う(DBは変更しない)
+    const candidates = extractCandidatesFromSite(hostname, rawText, metaDesc);
+    const dbNameSet = new Set(groups.map((g) => normalizeStr(g.name).toLowerCase()));
+    const unknownOnPage = [];
+    const seenCandidate = new Set();
+    for (const c of candidates) {
+      const norm = normalizeStr(c).toLowerCase();
+      if (!norm || seenCandidate.has(norm)) continue;
+      seenCandidate.add(norm);
+      if (!dbNameSet.has(norm)) unknownOnPage.push(c);
+    }
+
     res.json({
       ok: true,
       url,
@@ -255,6 +374,8 @@ app.post("/api/lookup", async (req, res) => {
       matchedCount: unique.length,
       groups: unique,
       dbTotal: groups.length,
+      unknownOnPage,
+      siteRuleApplied: candidates.length > 0,
     });
   } catch (e) {
     console.error(e);
