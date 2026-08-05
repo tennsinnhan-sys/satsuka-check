@@ -295,6 +295,168 @@
     font-size: 13px;
     max-width: 100%;
   }
+  .result-head-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+
+  .edit-toggle-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-dim);
+    cursor: pointer;
+    user-select: none;
+  }
+  .edit-toggle {
+    width: 34px;
+    height: 19px;
+    border-radius: 999px;
+    background: var(--line);
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.15s ease;
+  }
+  .edit-toggle.on { background: var(--flash); }
+  .edit-toggle .knob {
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: var(--stage);
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    transition: left 0.15s ease;
+  }
+  .edit-toggle.on .knob { left: 17px; }
+
+  .edit-mark {
+    color: var(--flash);
+    font-size: 11px;
+    margin-left: 2px;
+    flex-shrink: 0;
+  }
+  .card.overridden { border-color: var(--flash); }
+
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal-box {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px;
+    width: 100%;
+    max-width: 360px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+  .modal-header .name {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--ink);
+  }
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--ink-dim);
+    cursor: pointer;
+    font-size: 18px;
+    line-height: 1;
+    padding: 4px;
+  }
+  .modal-hint {
+    color: #565a6b;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    margin-bottom: 14px;
+  }
+  .modal-label {
+    color: var(--ink-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    margin-bottom: 6px;
+  }
+  .option-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .option-btn {
+    flex: 1;
+    text-align: center;
+    padding: 7px 4px;
+    border-radius: 6px;
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    background: none;
+  }
+  .option-btn.selected.ok       { background: rgba(111,207,151,0.18); color: var(--ok); border-color: var(--ok); }
+  .option-btn.selected.ng       { background: rgba(239,111,111,0.18); color: var(--ng); border-color: var(--ng); }
+  .option-btn.selected.maybe    { background: rgba(242,201,76,0.18); color: var(--maybe); border-color: var(--maybe); }
+  .option-btn.selected.heroines { background: rgba(236,127,196,0.18); color: var(--heroines); border-color: var(--heroines); }
+  .modal-memo {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--stage-deep);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px;
+    color: var(--ink);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    resize: vertical;
+    min-height: 60px;
+    margin-bottom: 16px;
+  }
+  .modal-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .modal-reset {
+    background: none;
+    border: none;
+    color: #565a6b;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: underline;
+    padding: 6px 0;
+  }
+  .modal-save {
+    background: var(--flash);
+    color: #23180a;
+    border: none;
+    font-weight: 700;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 15px;
+    padding: 9px 22px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
 
   .reorder-hint {
     color: var(--ink-dim);
@@ -507,6 +669,30 @@
 
     <div id="results"></div>
 
+    <div class="modal-overlay" id="editModal">
+      <div class="modal-box">
+        <div class="modal-header">
+          <span class="name" id="editModalName"></span>
+          <button type="button" class="modal-close" id="editModalClose" aria-label="閉じる">✕</button>
+        </div>
+        <div class="modal-hint">この編集はDBには反映されず、今の検索結果にのみ一時適用されます</div>
+
+        <div class="modal-label">静止画(この場限定)</div>
+        <div class="option-row" id="editPhotoOptions"></div>
+
+        <div class="modal-label">動画(この場限定)</div>
+        <div class="option-row" id="editVideoOptions"></div>
+
+        <div class="modal-label">メモ</div>
+        <textarea class="modal-memo" id="editMemo" placeholder="例: フロア後方のみ撮影OK"></textarea>
+
+        <div class="modal-footer">
+          <button type="button" class="modal-reset" id="editModalReset">元に戻す</button>
+          <button type="button" class="modal-save" id="editModalSave">保存</button>
+        </div>
+      </div>
+    </div>
+
     <footer>グループ名がページ本文にそのまま含まれるかで判定する簡易照合です。表記ゆれ等で漏れる場合があります。最終確認は各グループの公式Xで。<br>一度オンラインで開いておくと、グループ名リスト照合はオフラインでも利用できます(端末にDBを保存)。</footer>
   </div>
 
@@ -525,6 +711,14 @@
   const refreshBtn = document.getElementById('refreshBtn');
   const cacheNoteEl = document.getElementById('cacheNote');
   const offlineBanner = document.getElementById('offlineBanner');
+  const editModal = document.getElementById('editModal');
+  const editModalName = document.getElementById('editModalName');
+  const editPhotoOptions = document.getElementById('editPhotoOptions');
+  const editVideoOptions = document.getElementById('editVideoOptions');
+  const editMemo = document.getElementById('editMemo');
+  const editModalClose = document.getElementById('editModalClose');
+  const editModalReset = document.getElementById('editModalReset');
+  const editModalSave = document.getElementById('editModalSave');
 
   // ---- Service Worker登録(オフラインでもアプリの画面自体は開けるようにする) ----
   if ('serviceWorker' in navigator) {
@@ -671,6 +865,8 @@
   let currentNotFound = [];
   let currentPageTitle = '';
   let dragSrcIndex = null;
+  let editMode = false;
+  let editingIndex = null;
 
   function chipInfo(value) {
     if (value === '可') return { cls: 'ok', label: '可' };
@@ -697,11 +893,12 @@
     const hasDetail = showQueryNote || g.note || links.length > 0;
 
     return `
-      <div class="card" draggable="true" data-index="${index}">
+      <div class="card${g._overridden ? ' overridden' : ''}" draggable="true" data-index="${index}">
         <div class="card-row" data-role="toggle">
           <span class="handle" title="ドラッグで並べ替え">⠿</span>
           <span class="order-num">${index + 1}</span>
           <span class="card-name">${escapeHtml(g.name)}</span>
+          ${g._overridden ? '<span class="edit-mark" title="この場限定で編集済み">✎</span>' : ''}
           <div class="badge-group">
             <span class="badge ${photo.cls}" title="静止画: ${photo.label}">静</span>
             <span class="badge ${video.cls}" title="動画: ${video.label}">動</span>
@@ -742,8 +939,14 @@
       <div class="result-head">
         <h2>照合結果 (${currentGroups.length})</h2>
         ${currentPageTitle ? `<div class="page-title">${escapeHtml(currentPageTitle)}</div>` : ''}
+        <div class="result-head-controls">
+          <div class="edit-toggle-wrap" id="editModeToggle">
+            <span>編集モード</span>
+            <div class="edit-toggle${editMode ? ' on' : ''}"><div class="knob"></div></div>
+          </div>
+        </div>
       </div>
-      ${currentGroups.length > 1 ? '<div class="reorder-hint">⠿ をドラッグしてタイムテーブル順に並べ替え、行をタップで詳細表示</div>' : ''}
+      ${currentGroups.length > 1 ? `<div class="reorder-hint">${editMode ? '編集モード: 行をタップしてこの場限定のレギュを入力' : '⠿ をドラッグしてタイムテーブル順に並べ替え、行をタップで詳細表示'}</div>` : ''}
     `;
 
     const cards = currentGroups.length
@@ -752,6 +955,14 @@
 
     resultsEl.innerHTML = head + cards + renderNotFound(currentNotFound);
     attachCardEvents();
+
+    const toggleEl = document.getElementById('editModeToggle');
+    if (toggleEl) {
+      toggleEl.addEventListener('click', () => {
+        editMode = !editMode;
+        draw();
+      });
+    }
   }
 
   function attachCardEvents() {
@@ -763,7 +974,15 @@
       card.addEventListener('drop', onDrop);
 
       const row = card.querySelector('[data-role="toggle"]');
-      if (row) row.addEventListener('click', () => card.classList.toggle('expanded'));
+      if (row) {
+        row.addEventListener('click', () => {
+          if (editMode) {
+            openEditModal(Number(card.dataset.index));
+          } else {
+            card.classList.toggle('expanded');
+          }
+        });
+      }
     });
   }
 
@@ -799,6 +1018,80 @@
     dragSrcIndex = null;
     draw();
   }
+
+  // ---- 編集モード: この場限定の一時上書き(DBには反映しない、画面表示のみ) ----
+  const STATUS_OPTIONS = [
+    { value: '可', cls: 'ok' },
+    { value: '不可', cls: 'ng' },
+    { value: '※', cls: 'maybe' },
+    { value: 'HEROINES', cls: 'heroines' },
+  ];
+
+  function renderOptionRow(container, currentValue, onPick) {
+    container.innerHTML = '';
+    STATUS_OPTIONS.forEach((opt) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'option-btn' + (opt.value === currentValue ? ` selected ${opt.cls}` : '');
+      btn.textContent = opt.value;
+      btn.addEventListener('click', () => onPick(opt.value));
+      container.appendChild(btn);
+    });
+  }
+
+  function openEditModal(index) {
+    editingIndex = index;
+    const g = currentGroups[index];
+    if (!g) return;
+
+    editModalName.textContent = g.name;
+    editMemo.value = g.note || '';
+
+    let selectedPhoto = g.photo;
+    let selectedVideo = g.video;
+
+    const redrawOptions = () => {
+      renderOptionRow(editPhotoOptions, selectedPhoto, (v) => { selectedPhoto = v; redrawOptions(); });
+      renderOptionRow(editVideoOptions, selectedVideo, (v) => { selectedVideo = v; redrawOptions(); });
+    };
+    redrawOptions();
+
+    editModalSave.onclick = () => {
+      if (!g._overridden) {
+        g._original = { photo: g.photo, video: g.video, note: g.note };
+      }
+      g.photo = selectedPhoto;
+      g.video = selectedVideo;
+      g.note = editMemo.value.trim();
+      g._overridden = true;
+      closeEditModal();
+      draw();
+    };
+
+    editModalReset.onclick = () => {
+      if (g._original) {
+        g.photo = g._original.photo;
+        g.video = g._original.video;
+        g.note = g._original.note;
+        delete g._original;
+        delete g._overridden;
+      }
+      closeEditModal();
+      draw();
+    };
+
+    editModal.classList.add('show');
+  }
+
+  function closeEditModal() {
+    editModal.classList.remove('show');
+    editingIndex = null;
+  }
+
+  editModalClose.addEventListener('click', closeEditModal);
+  editModal.addEventListener('click', (e) => {
+    if (e.target === editModal) closeEditModal();
+  });
 
   function escapeHtml(str) {
     return String(str)
