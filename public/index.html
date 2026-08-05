@@ -130,7 +130,7 @@
     flex-shrink: 0;
   }
 
-  /* --- ticket-stub input card --- */
+  /* --- input card --- */
   .stub {
     position: relative;
     background: var(--panel);
@@ -142,18 +142,6 @@
     align-items: center;
     flex-wrap: wrap;
   }
-  .stub::before, .stub::after {
-    content: "";
-    position: absolute;
-    top: 50%;
-    width: 22px;
-    height: 22px;
-    background: var(--stage);
-    border-radius: 50%;
-    transform: translateY(-50%);
-  }
-  .stub::before { left: -11px; }
-  .stub::after { right: -11px; }
 
   .stub input[type="url"] {
     flex: 1 1 320px;
@@ -286,16 +274,6 @@
     font-size: 10px;
     white-space: nowrap;
     flex-shrink: 0;
-  }
-
-  .perf {
-    width: 100%;
-    border-top: 1px dashed var(--line);
-    margin-top: 20px;
-    padding-top: 14px;
-    color: var(--ink-dim);
-    font-size: 12.5px;
-    font-family: 'JetBrains Mono', monospace;
   }
 
   /* --- status / results --- */
@@ -724,7 +702,6 @@
       <div class="stub">
         <input type="url" id="urlInput" placeholder="https://example.com/event/xxxxx" required />
         <button class="go" id="goBtn" type="submit">照合する</button>
-        <div class="perf">SEAT — GENERAL &nbsp;/&nbsp; ADMIT ONE &nbsp;/&nbsp; NO REFUND</div>
       </div>
     </form>
 
@@ -734,7 +711,6 @@
         <div class="list-actions">
           <button class="go" id="listGoBtn" type="submit">照合する</button>
         </div>
-        <div class="perf">SEAT — GENERAL &nbsp;/&nbsp; ADMIT ONE &nbsp;/&nbsp; NO REFUND</div>
       </div>
     </form>
 
