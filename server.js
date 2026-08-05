@@ -309,6 +309,8 @@ app.post("/api/lookup", async (req, res) => {
     const $ = cheerio.load(html);
     $("script, style, noscript, template").remove();
     const pageText = $("body").text().replace(/\s+/g, " ");
+    // 全角/半角(英数字・記号・スペース)を区別せず照合できるよう正規化
+    const normPageText = normalizeStr(pageText);
     const rawText = $("body")
       .text()
       .split("\n")
@@ -335,7 +337,7 @@ app.post("/api/lookup", async (req, res) => {
     const matched = [];
     for (const g of groups) {
       if (g.name && g.name.length >= 2) {
-        const pos = pageText.indexOf(g.name);
+        const pos = normPageText.indexOf(normalizeStr(g.name));
         if (pos !== -1) {
           matched.push({ ...g, _pos: pos });
         }
@@ -365,7 +367,7 @@ app.post("/api/lookup", async (req, res) => {
       if (!norm || seenCandidate.has(norm)) continue;
       seenCandidate.add(norm);
       if (!dbNameSet.has(norm)) {
-        const pos = pageText.indexOf(c);
+        const pos = normPageText.indexOf(normalizeStr(c));
         unknownOnPage.push({ name: c, pagePos: pos === -1 ? Number.MAX_SAFE_INTEGER : pos });
       }
     }
