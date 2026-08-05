@@ -348,6 +348,19 @@
     font-size: 13px;
     max-width: 100%;
   }
+  .export-btn {
+    background: none;
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    padding: 5px 10px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .export-btn:hover { border-color: var(--flash); color: var(--flash); }
+  .export-btn:disabled { opacity: 0.5; cursor: default; }
+
   .result-head-controls {
     display: flex;
     align-items: center;
@@ -730,6 +743,111 @@
     font-family: 'JetBrains Mono', monospace;
     text-align: center;
   }
+
+  /* --- 画像書き出し専用ビュー(html2canvasで撮影する要素) --- */
+  .export-wrap {
+    position: fixed;
+    left: -9999px;
+    top: 0;
+    width: 420px;
+    background: var(--panel);
+    padding: 20px;
+    font-family: 'Noto Sans JP', system-ui, sans-serif;
+    box-sizing: border-box;
+  }
+  .export-event {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--stage);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+  }
+  .export-event img {
+    width: 52px;
+    height: 52px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+  .export-event .export-event-title { font-weight: 700; font-size: 13px; color: var(--ink); }
+  .export-event .export-event-meta {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--ink-dim);
+  }
+  .export-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--ink);
+    margin-bottom: 8px;
+    font-family: 'Barlow Condensed', sans-serif;
+  }
+  .export-colheaders {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 4px 6px;
+  }
+  .export-colheaders span.col-label {
+    width: 48px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--ink-dim);
+  }
+  .export-rows { display: flex; flex-direction: column; gap: 5px; }
+  .export-row {
+    background: var(--stage);
+    border-radius: 9px;
+    padding: 8px 10px;
+  }
+  .export-row.unknown {
+    background: rgba(14,116,144,0.06);
+    border: 1px dashed var(--partial);
+  }
+  .export-row-main { display: flex; align-items: center; gap: 6px; }
+  .export-row .export-num {
+    color: var(--flash);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 11px;
+    width: 16px;
+    flex-shrink: 0;
+  }
+  .export-row .export-name {
+    flex: 1;
+    min-width: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 12.5px;
+    color: var(--ink);
+  }
+  .export-row.unknown .export-name { color: var(--partial); }
+  .export-row .export-name .export-edit-mark { color: var(--edited); font-size: 10px; margin-left: 3px; }
+  .export-row .export-unknown-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--ink-dim);
+  }
+  .export-row .export-note {
+    font-size: 10.5px;
+    color: var(--ink-dim);
+    margin-top: 5px;
+    padding-left: 22px;
+  }
+  .export-credit {
+    text-align: right;
+    margin-top: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    color: var(--muted);
+  }
 </style>
 </head>
 <body>
@@ -805,6 +923,7 @@
     <footer>グループ名がページ本文にそのまま含まれるかで判定する簡易照合です。表記ゆれ等で漏れる場合があります。最終確認は各グループの公式Xで。<br>一度オンラインで開いておくと、グループ名リスト照合はオフラインでも利用できます(端末にDBを保存)。</footer>
   </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script>
   const form = document.getElementById('lookupForm');
   const urlInput = document.getElementById('urlInput');
@@ -1163,6 +1282,121 @@
     `;
   }
 
+  // ---- 結果を画像として書き出す(html2canvas) ----
+  function buildExportHtml() {
+    const matched = currentGroups.filter((g) => !g._unknown).length;
+
+    let eventHtml = '';
+    if (currentEventInfo && currentEventInfo.title) {
+      const meta = [];
+      if (currentEventInfo.date) meta.push(`<span>📅 ${escapeHtml(currentEventInfo.date)}</span>`);
+      if (currentEventInfo.venue) meta.push(`<span>📍 ${escapeHtml(currentEventInfo.venue)}</span>`);
+      eventHtml = `
+        <div class="export-event">
+          ${currentEventInfo.image ? `<img src="${escapeAttr(currentEventInfo.image)}" alt="" crossorigin="anonymous">` : ''}
+          <div>
+            <div class="export-event-title">${escapeHtml(currentEventInfo.title)}</div>
+            ${meta.length ? `<div class="export-event-meta">${meta.join('')}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    const rows = currentGroups.map((g, i) => {
+      if (g._unknown) {
+        return `
+          <div class="export-row unknown">
+            <div class="export-row-main">
+              <span class="export-num">${i + 1}</span>
+              <span class="export-name">${escapeHtml(g.name)}</span>
+              <span class="export-unknown-tag">未登録</span>
+            </div>
+          </div>
+        `;
+      }
+      const photo = chipInfo(g.photo);
+      const video = chipInfo(g.video);
+      const editMark = g._overridden ? '<span class="export-edit-mark">✎</span>' : '';
+      return `
+        <div class="export-row">
+          <div class="export-row-main">
+            <span class="export-num">${i + 1}</span>
+            <span class="export-name">${escapeHtml(g.name)}${editMark}</span>
+            ${renderBadge(photo)}
+            ${renderBadge(video)}
+          </div>
+          ${g.note ? `<div class="export-note">${escapeHtml(g.note)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    return `
+      ${eventHtml}
+      <div class="export-title">照合結果 (${matched})</div>
+      <div class="export-colheaders">
+        <span style="flex:1;"></span>
+        <span class="col-label">静止画</span>
+        <span class="col-label">動画</span>
+      </div>
+      <div class="export-rows">${rows}</div>
+      <div class="export-credit">撮可チェック — satsuka-check</div>
+    `;
+  }
+
+  async function exportAsImage() {
+    if (typeof html2canvas === 'undefined') {
+      alert('画像化ライブラリの読み込みに失敗しました。オンラインの状態で再度お試しください。');
+      return;
+    }
+    const btn = document.getElementById('exportImageBtn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '書き出し中…';
+    }
+
+    const wrap = document.createElement('div');
+    wrap.className = 'export-wrap';
+    wrap.innerHTML = buildExportHtml();
+    document.body.appendChild(wrap);
+
+    try {
+      // 画像(イベントサムネ)の読み込みを待つ(失敗した場合は諦めて進める)
+      const imgs = wrap.querySelectorAll('img');
+      await Promise.all(Array.from(imgs).map((img) => {
+        if (img.complete) return Promise.resolve();
+        return new Promise((resolve) => {
+          img.addEventListener('load', resolve, { once: true });
+          img.addEventListener('error', () => { img.remove(); resolve(); }, { once: true });
+        });
+      }));
+
+      const canvas = await html2canvas(wrap, {
+        backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--panel').trim() || '#ffffff',
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+      });
+
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const link = document.createElement('a');
+        const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+        link.download = `satsuka-check_${stamp}.png`;
+        link.href = URL.createObjectURL(blob);
+        link.click();
+        URL.revokeObjectURL(link.href);
+      }, 'image/png');
+    } catch (e) {
+      alert('画像の書き出しに失敗しました: ' + e.message);
+    } finally {
+      document.body.removeChild(wrap);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '画像で保存';
+      }
+    }
+  }
+
   function renderNotFound(list) {
     if (!list || list.length === 0) return '';
     return `
@@ -1202,6 +1436,7 @@
       <div class="result-head">
         <h2>照合結果 (${matchedCount})${unknownInlineCount > 0 ? ` <span class="page-title">+ 未登録${unknownInlineCount}件</span>` : ''}</h2>
         <div class="result-head-controls">
+          <button type="button" class="export-btn" id="exportImageBtn">画像で保存</button>
           ${showClearAll ? '<span class="clear-all-link" id="clearAllEdits">このURLの編集を全消去</span>' : ''}
           <div class="edit-toggle-wrap" id="editModeToggle">
             <span>編集モード</span>
@@ -1222,6 +1457,11 @@
 
     resultsEl.innerHTML = renderEventCard(currentEventInfo) + head + colHeaders + cards + renderNotFound(currentNotFound) + renderUnknownOnPage(currentUnknownOnPage);
     attachCardEvents();
+
+    const exportBtn = document.getElementById('exportImageBtn');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', exportAsImage);
+    }
 
     const toggleEl = document.getElementById('editModeToggle');
     if (toggleEl) {
