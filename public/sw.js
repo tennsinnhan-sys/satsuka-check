@@ -4,11 +4,12 @@
 // オフライン時のグループ名リスト照合は、index.html 側で localStorage に
 // 保存しておいたDBスナップショットを使ってクライアント内で完結させる。
 
-const CACHE_NAME = "satsuka-check-shell-v3";
+const CACHE_NAME = "satsuka-check-shell-v4";
 const SHELL_FILES = [
   "/",
   "/manifest.json",
   "/favicon.ico?v=2",
+  "/icons/icon-180.png?v=2",
   "/icons/icon-192.png?v=2",
   "/icons/icon-512.png?v=2",
   "/icons/icon-maskable-512.png?v=2",
