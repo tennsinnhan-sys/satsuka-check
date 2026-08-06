@@ -134,34 +134,43 @@ function normalizeStr(s) {
   return (s || "").normalize("NFKC").trim();
 }
 
-// 改行、または前後にスペースを伴う " / " で分割する
-// (例: "LilyS/ash" のようにスペースなしのスラッシュを含む名前は壊さない)
+// 改行、スラッシュ(前後スペース有無どちらも)、「、」「・」で分割する
+// (スペースなしのスラッシュを含む名前は splitGroupList の時点では一旦壊れるが、
+//  mergeKnownSplitNames で DB の実名と突き合わせて復元する)
 function splitGroupList(text) {
   return text
     .split(/\r?\n/)
-    .flatMap((line) => line.split(/\s+\/\s+/))
+    .flatMap((line) => line.split(/[\/、・]/))
     .map((s) => normalizeStr(s))
     .filter(Boolean);
 }
 
-// "LilyS/ash" のようにスラッシュを含むDB登録名が、サイト側の表記ゆれで
-// "LilyS" "ash" のように分割されてしまった場合に、DBの実名と突き合わせて復元する
-function mergeKnownSlashNames(tokens, groups) {
+// "LilyS/ash" のように区切り文字と同じ記号を含むDB登録名が、分割によって
+// "LilyS" "ash" のように壊れてしまった場合に、DBの実名と突き合わせて復元する
+function mergeKnownSplitNames(tokens, groups) {
   if (!tokens || tokens.length < 2) return tokens || [];
   const dbNameSet = new Set(groups.map((g) => normalizeStr(g.name).toLowerCase()));
+  const separators = ["/", "、", "・"];
   const result = [];
   let i = 0;
   while (i < tokens.length) {
+    let merged = null;
     if (i + 1 < tokens.length) {
-      const combined = `${tokens[i]}/${tokens[i + 1]}`;
-      if (dbNameSet.has(normalizeStr(combined).toLowerCase())) {
-        result.push(combined);
-        i += 2;
-        continue;
+      for (const sep of separators) {
+        const combined = `${tokens[i]}${sep}${tokens[i + 1]}`;
+        if (dbNameSet.has(normalizeStr(combined).toLowerCase())) {
+          merged = combined;
+          break;
+        }
       }
     }
-    result.push(tokens[i]);
-    i += 1;
+    if (merged) {
+      result.push(merged);
+      i += 2;
+    } else {
+      result.push(tokens[i]);
+      i += 1;
+    }
   }
   return result;
 }
@@ -481,7 +490,7 @@ app.post("/api/lookup", async (req, res) => {
 
     // サイト別ルールでページ上の出演者名を抽出し、DB未登録のものだけ拾う(DBは変更しない)
     const rawCandidates = extractCandidatesFromSite(hostname, rawText, metaDesc);
-    const candidates = mergeKnownSlashNames(rawCandidates, groups);
+    const candidates = mergeKnownSplitNames(rawCandidates, groups);
     const dbNameSet = new Set(groups.map((g) => normalizeStr(g.name).toLowerCase()));
     const unknownOnPage = [];
     const seenCandidate = new Set();
@@ -528,7 +537,7 @@ app.post("/api/lookup-list", async (req, res) => {
     }
 
     const groups = await getGroups();
-    const mergedTokens = mergeKnownSlashNames(tokens, groups);
+    const mergedTokens = mergeKnownSplitNames(tokens, groups);
     const { matched, notFound } = matchListAgainstGroups(mergedTokens, groups);
 
     res.json({

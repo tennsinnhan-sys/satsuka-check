@@ -1090,27 +1090,35 @@
   function splitGroupListClient(text) {
     return text
       .split(/\r?\n/)
-      .flatMap((line) => line.split(/\s+\/\s+/))
+      .flatMap((line) => line.split(/[\/、・]/))
       .map((s) => normalizeStrClient(s))
       .filter(Boolean);
   }
 
-  function mergeKnownSlashNamesClient(tokens, groups) {
+  function mergeKnownSplitNamesClient(tokens, groups) {
     if (!tokens || tokens.length < 2) return tokens || [];
     const dbNameSet = new Set(groups.map((g) => normalizeStrClient(g.name).toLowerCase()));
+    const separators = ['/', '、', '・'];
     const result = [];
     let i = 0;
     while (i < tokens.length) {
+      let merged = null;
       if (i + 1 < tokens.length) {
-        const combined = `${tokens[i]}/${tokens[i + 1]}`;
-        if (dbNameSet.has(normalizeStrClient(combined).toLowerCase())) {
-          result.push(combined);
-          i += 2;
-          continue;
+        for (const sep of separators) {
+          const combined = `${tokens[i]}${sep}${tokens[i + 1]}`;
+          if (dbNameSet.has(normalizeStrClient(combined).toLowerCase())) {
+            merged = combined;
+            break;
+          }
         }
       }
-      result.push(tokens[i]);
-      i += 1;
+      if (merged) {
+        result.push(merged);
+        i += 2;
+      } else {
+        result.push(tokens[i]);
+        i += 1;
+      }
     }
     return result;
   }
@@ -1817,7 +1825,7 @@
         return;
       }
 
-      const mergedTokens = mergeKnownSlashNamesClient(tokens, cache.groups);
+      const mergedTokens = mergeKnownSplitNamesClient(tokens, cache.groups);
       const { matched, notFound } = matchListAgainstGroupsClient(mergedTokens, cache.groups);
       dbCountEl.textContent = `${cache.groups.length}(保存分)`;
       statusEl.textContent = `オフライン照合 — 入力${mergedTokens.length}件中 ${matched.length}件が保存済みDB(${formatCachedAt(cache.cachedAt)}時点)に一致`;
