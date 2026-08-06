@@ -19,6 +19,7 @@ const DATABASE_ID = process.env.NOTION_DATABASE_ID;
 // ---- Notion DB キャッシュ ----
 let groupCache = [];
 let lastFetched = 0;
+let isRefreshing = false;
 const CACHE_TTL_MS = 10 * 60 * 1000; // 10分
 
 function extractPlainText(richTextArray) {
@@ -91,10 +92,39 @@ async function fetchAllGroups() {
 
 async function getGroups(forceRefresh = false) {
   const now = Date.now();
-  if (forceRefresh || groupCache.length === 0 || now - lastFetched > CACHE_TTL_MS) {
+
+  // 明示的な再取得(「DBを再取得」ボタン)は、実際に新しいデータを取り終わるまで待つ
+  if (forceRefresh) {
     groupCache = await fetchAllGroups();
-    lastFetched = now;
+    lastFetched = Date.now();
+    isRefreshing = false;
+    return groupCache;
   }
+
+  // 初回(サーバー起動直後でキャッシュが空)は、待つしかない
+  if (groupCache.length === 0) {
+    groupCache = await fetchAllGroups();
+    lastFetched = Date.now();
+    return groupCache;
+  }
+
+  // キャッシュ期限切れ: 古いデータを即座に返しつつ、裏側で更新する(stale-while-revalidate)
+  const isStale = now - lastFetched > CACHE_TTL_MS;
+  if (isStale && !isRefreshing) {
+    isRefreshing = true;
+    fetchAllGroups()
+      .then((fresh) => {
+        groupCache = fresh;
+        lastFetched = Date.now();
+      })
+      .catch((e) => {
+        console.error("バックグラウンドでのDB再取得に失敗しました:", e);
+      })
+      .finally(() => {
+        isRefreshing = false;
+      });
+  }
+
   return groupCache;
 }
 
