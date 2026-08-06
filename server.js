@@ -175,7 +175,27 @@ function mergeKnownSplitNames(tokens, groups) {
   return result;
 }
 
+// グループ名・読み仮名の索引を1回だけ作る(正規化も1回だけ計算しておく)
+function buildGroupIndex(groups) {
+  const byName = new Map();
+  const byReading = new Map();
+  const normalized = [];
+
+  for (const g of groups) {
+    const normName = normalizeStr(g.name).toLowerCase();
+    if (normName && !byName.has(normName)) byName.set(normName, g);
+    if (g.reading) {
+      const normReading = normalizeStr(g.reading).toLowerCase();
+      if (normReading && !byReading.has(normReading)) byReading.set(normReading, g);
+    }
+    normalized.push({ group: g, normName });
+  }
+
+  return { byName, byReading, normalized };
+}
+
 function matchListAgainstGroups(tokens, groups) {
+  const index = buildGroupIndex(groups); // ここで1回だけDBを走査
   const results = [];
   const notFound = [];
 
@@ -183,30 +203,25 @@ function matchListAgainstGroups(tokens, groups) {
     const normToken = normalizeStr(token).toLowerCase();
     if (!normToken) return;
 
-    // 1) グループ名との完全一致
-    let match = groups.find(
-      (g) => normalizeStr(g.name).toLowerCase() === normToken
-    );
+    // 1) グループ名との完全一致(索引を引くだけ)
+    let match = index.byName.get(normToken);
     let matchType = "exact";
 
-    // 2) 読み仮名との完全一致
+    // 2) 読み仮名との完全一致(索引を引くだけ)
     if (!match) {
-      match = groups.find(
-        (g) => g.reading && normalizeStr(g.reading).toLowerCase() === normToken
-      );
+      match = index.byReading.get(normToken);
       matchType = "exact-reading";
     }
 
-    // 3) 部分一致(表記ゆれ対応のフォールバック)
+    // 3) 部分一致(表記ゆれ対応のフォールバック。正規化済みの名前を使うので再計算はしない)
     if (!match) {
-      match = groups.find((g) => {
-        const gn = normalizeStr(g.name).toLowerCase();
-        return (
-          gn.length >= 2 &&
+      const found = index.normalized.find(
+        (entry) =>
+          entry.normName.length >= 2 &&
           normToken.length >= 2 &&
-          (gn.includes(normToken) || normToken.includes(gn))
-        );
-      });
+          (entry.normName.includes(normToken) || normToken.includes(entry.normName))
+      );
+      if (found) match = found.group;
       matchType = "fuzzy";
     }
 

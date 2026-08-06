@@ -1123,7 +1123,26 @@
     return result;
   }
 
+  function buildGroupIndexClient(groups) {
+    const byName = new Map();
+    const byReading = new Map();
+    const normalized = [];
+
+    for (const g of groups) {
+      const normName = normalizeStrClient(g.name).toLowerCase();
+      if (normName && !byName.has(normName)) byName.set(normName, g);
+      if (g.reading) {
+        const normReading = normalizeStrClient(g.reading).toLowerCase();
+        if (normReading && !byReading.has(normReading)) byReading.set(normReading, g);
+      }
+      normalized.push({ group: g, normName });
+    }
+
+    return { byName, byReading, normalized };
+  }
+
   function matchListAgainstGroupsClient(tokens, groups) {
+    const index = buildGroupIndexClient(groups);
     const results = [];
     const notFound = [];
 
@@ -1131,23 +1150,22 @@
       const normToken = normalizeStrClient(token).toLowerCase();
       if (!normToken) return;
 
-      let match = groups.find(
-        (g) => normalizeStrClient(g.name).toLowerCase() === normToken
-      );
+      let match = index.byName.get(normToken);
       let matchType = 'exact';
 
       if (!match) {
-        match = groups.find(
-          (g) => g.reading && normalizeStrClient(g.reading).toLowerCase() === normToken
-        );
+        match = index.byReading.get(normToken);
         matchType = 'exact-reading';
       }
 
       if (!match) {
-        match = groups.find((g) => {
-          const gn = normalizeStrClient(g.name).toLowerCase();
-          return gn.length >= 2 && normToken.length >= 2 && (gn.includes(normToken) || normToken.includes(gn));
-        });
+        const found = index.normalized.find(
+          (entry) =>
+            entry.normName.length >= 2 &&
+            normToken.length >= 2 &&
+            (entry.normName.includes(normToken) || normToken.includes(entry.normName))
+        );
+        if (found) match = found.group;
         matchType = 'fuzzy';
       }
 
