@@ -1114,9 +1114,9 @@
     const results = [];
     const notFound = [];
 
-    for (const token of tokens) {
+    tokens.forEach((token, orderIndex) => {
       const normToken = normalizeStrClient(token).toLowerCase();
-      if (!normToken) continue;
+      if (!normToken) return;
 
       let match = groups.find(
         (g) => normalizeStrClient(g.name).toLowerCase() === normToken
@@ -1139,11 +1139,11 @@
       }
 
       if (match) {
-        results.push({ ...match, query: token, matchType });
+        results.push({ ...match, query: token, matchType, pagePos: orderIndex });
       } else {
-        notFound.push(token);
+        notFound.push({ name: token, pagePos: orderIndex });
       }
-    }
+    });
 
     const seen = new Set();
     const unique = [];
@@ -1783,11 +1783,18 @@
       dbCountEl.textContent = data.dbTotal;
       statusEl.textContent = '';
 
-      currentGroups = data.groups;
-      currentNotFound = data.notFound || [];
+      const notFoundEntries = data.notFound || [];
+      const mergedList = [
+        ...data.groups.map((g) => ({ ...g, _unknown: false })),
+        ...notFoundEntries.map((n) => ({ name: n.name, pagePos: n.pagePos, _unknown: true })),
+      ];
+      mergedList.sort((a, b) => (a.pagePos ?? 0) - (b.pagePos ?? 0));
+
+      currentGroups = mergedList;
+      currentNotFound = [];
       currentEventInfo = eventName ? { title: eventName } : null;
       currentEditUrl = null;
-      currentUnknownOnPage = [];
+      currentUnknownOnPage = notFoundEntries.map((n) => n.name);
       draw();
     } catch (err) {
       // サーバーに届かない(オフライン等) → 端末保存のDBスナップショットで代わりに照合
@@ -1810,11 +1817,17 @@
       dbCountEl.textContent = `${cache.groups.length}(保存分)`;
       statusEl.textContent = `オフライン照合 — 入力${mergedTokens.length}件中 ${matched.length}件が保存済みDB(${formatCachedAt(cache.cachedAt)}時点)に一致`;
 
-      currentGroups = matched;
-      currentNotFound = notFound;
+      const mergedListOffline = [
+        ...matched.map((g) => ({ ...g, _unknown: false })),
+        ...notFound.map((n) => ({ name: n.name, pagePos: n.pagePos, _unknown: true })),
+      ];
+      mergedListOffline.sort((a, b) => (a.pagePos ?? 0) - (b.pagePos ?? 0));
+
+      currentGroups = mergedListOffline;
+      currentNotFound = [];
       currentEventInfo = eventName ? { title: eventName } : null;
       currentEditUrl = null;
-      currentUnknownOnPage = [];
+      currentUnknownOnPage = notFound.map((n) => n.name);
       draw();
     } finally {
       listGoBtn.disabled = false;

@@ -140,9 +140,9 @@ function matchListAgainstGroups(tokens, groups) {
   const results = [];
   const notFound = [];
 
-  for (const token of tokens) {
+  tokens.forEach((token, orderIndex) => {
     const normToken = normalizeStr(token).toLowerCase();
-    if (!normToken) continue;
+    if (!normToken) return;
 
     // 1) グループ名との完全一致
     let match = groups.find(
@@ -172,11 +172,11 @@ function matchListAgainstGroups(tokens, groups) {
     }
 
     if (match) {
-      results.push({ ...match, query: token, matchType });
+      results.push({ ...match, query: token, matchType, pagePos: orderIndex });
     } else {
-      notFound.push(token);
+      notFound.push({ name: token, pagePos: orderIndex });
     }
-  }
+  });
 
   // 重複除去(同名グループが複数レコードある場合は最初の1件を採用)
   const seen = new Set();
