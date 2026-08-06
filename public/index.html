@@ -1125,12 +1125,17 @@
 
   function buildGroupIndexClient(groups) {
     const byName = new Map();
+    const byNameNoSpace = new Map();
     const byReading = new Map();
     const normalized = [];
 
     for (const g of groups) {
       const normName = normalizeStrClient(g.name).toLowerCase();
       if (normName && !byName.has(normName)) byName.set(normName, g);
+
+      const noSpaceName = normName.replace(/\s+/g, '');
+      if (noSpaceName && !byNameNoSpace.has(noSpaceName)) byNameNoSpace.set(noSpaceName, g);
+
       if (g.reading) {
         const normReading = normalizeStrClient(g.reading).toLowerCase();
         if (normReading && !byReading.has(normReading)) byReading.set(normReading, g);
@@ -1138,7 +1143,11 @@
       normalized.push({ group: g, normName });
     }
 
-    return { byName, byReading, normalized };
+    return { byName, byNameNoSpace, byReading, normalized };
+  }
+
+  function stripGenerationSuffixClient(normToken) {
+    return normToken.replace(/\s*\(?\d+期生\)?\s*$/, '').trim();
   }
 
   function matchListAgainstGroupsClient(tokens, groups) {
@@ -1150,12 +1159,28 @@
       const normToken = normalizeStrClient(token).toLowerCase();
       if (!normToken) return;
 
-      let match = index.byName.get(normToken);
+      let match = null;
       let matchType = 'exact';
+      const generationStripped = stripGenerationSuffixClient(normToken);
+      const hasGenerationSuffix = generationStripped && generationStripped !== normToken;
+      if (hasGenerationSuffix) {
+        match = index.byName.get(generationStripped) || index.byNameNoSpace.get(generationStripped.replace(/\s+/g, ''));
+        matchType = 'exact-base';
+      }
+
+      if (!match) {
+        match = index.byName.get(normToken);
+        matchType = 'exact';
+      }
 
       if (!match) {
         match = index.byReading.get(normToken);
         matchType = 'exact-reading';
+      }
+
+      if (!match) {
+        match = index.byNameNoSpace.get(normToken.replace(/\s+/g, ''));
+        matchType = 'exact-nospace';
       }
 
       if (!match) {

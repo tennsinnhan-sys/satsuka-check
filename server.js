@@ -178,12 +178,17 @@ function mergeKnownSplitNames(tokens, groups) {
 // グループ名・読み仮名の索引を1回だけ作る(正規化も1回だけ計算しておく)
 function buildGroupIndex(groups) {
   const byName = new Map();
+  const byNameNoSpace = new Map();
   const byReading = new Map();
   const normalized = [];
 
   for (const g of groups) {
     const normName = normalizeStr(g.name).toLowerCase();
     if (normName && !byName.has(normName)) byName.set(normName, g);
+
+    const noSpaceName = normName.replace(/\s+/g, "");
+    if (noSpaceName && !byNameNoSpace.has(noSpaceName)) byNameNoSpace.set(noSpaceName, g);
+
     if (g.reading) {
       const normReading = normalizeStr(g.reading).toLowerCase();
       if (normReading && !byReading.has(normReading)) byReading.set(normReading, g);
@@ -191,7 +196,13 @@ function buildGroupIndex(groups) {
     normalized.push({ group: g, normName });
   }
 
-  return { byName, byReading, normalized };
+  return { byName, byNameNoSpace, byReading, normalized };
+}
+
+// "かすみ草とステラ 1期生" "かすみ草とステラ(1期生)" のような「◯期生」の指定を取り除いて、
+// 無印のグループ名に寄せるためのヘルパー
+function stripGenerationSuffix(normToken) {
+  return normToken.replace(/\s*\(?\d+期生\)?\s*$/, "").trim();
 }
 
 function matchListAgainstGroups(tokens, groups) {
@@ -203,17 +214,39 @@ function matchListAgainstGroups(tokens, groups) {
     const normToken = normalizeStr(token).toLowerCase();
     if (!normToken) return;
 
-    // 1) グループ名との完全一致(索引を引くだけ)
-    let match = index.byName.get(normToken);
+    // 1) 「◯期生」の指定があれば、それを取り除いて無印グループに一致させる(最優先)
+    //    ("かすみ草とステラ(1期生)" のように、そのままDBに存在するサブグループ名でも
+    //     常に無印の方を優先する)
+    let match = null;
     let matchType = "exact";
+    const generationStripped = stripGenerationSuffix(normToken);
+    const hasGenerationSuffix = generationStripped && generationStripped !== normToken;
+    if (hasGenerationSuffix) {
+      match =
+        index.byName.get(generationStripped) ||
+        index.byNameNoSpace.get(generationStripped.replace(/\s+/g, ""));
+      matchType = "exact-base";
+    }
 
-    // 2) 読み仮名との完全一致(索引を引くだけ)
+    // 2) グループ名との完全一致(索引を引くだけ)
+    if (!match) {
+      match = index.byName.get(normToken);
+      matchType = "exact";
+    }
+
+    // 3) 読み仮名との完全一致(索引を引くだけ)
     if (!match) {
       match = index.byReading.get(normToken);
       matchType = "exact-reading";
     }
 
-    // 3) 部分一致(表記ゆれ対応のフォールバック。正規化済みの名前を使うので再計算はしない)
+    // 4) スペースの有無を無視した完全一致(例: "Lily S/ash" ↔ "LilyS/ash")
+    if (!match) {
+      match = index.byNameNoSpace.get(normToken.replace(/\s+/g, ""));
+      matchType = "exact-nospace";
+    }
+
+    // 5) 部分一致(表記ゆれ対応のフォールバック。正規化済みの名前を使うので再計算はしない)
     if (!match) {
       const found = index.normalized.find(
         (entry) =>
