@@ -563,6 +563,7 @@ app.post("/api/lookup", async (req, res) => {
     }
 
     const groups = await getGroups();
+    const groupIndex = buildGroupIndex(groups);
 
     // グループ名がページ本文にそのまま含まれるかで判定(サイト構造に依存しない汎用方式)
     // ページ内で最初に登場する位置を記録し、その順番で並べる(タイムテーブル順に近づくことが多いため)
@@ -579,13 +580,13 @@ app.post("/api/lookup", async (req, res) => {
     matched.sort((a, b) => a._pos - b._pos);
 
     // 重複除去(同名グループが複数レコードある場合は、ページ内で先に出現した1件を採用)
-    const seen = new Set();
-    const unique = [];
+    // name をキーにした Map にしておき、「◯期生」付き候補で見つかった場合に
+    // 無印グループの重複表示を後から差し替えられるようにする
+    const uniqueMap = new Map();
     for (const m of matched) {
-      if (!seen.has(m.name)) {
-        seen.add(m.name);
+      if (!uniqueMap.has(m.name)) {
         const { _pos, ...rest } = m;
-        unique.push({ ...rest, pagePos: _pos });
+        uniqueMap.set(m.name, { ...rest, pagePos: _pos });
       }
     }
 
@@ -599,12 +600,30 @@ app.post("/api/lookup", async (req, res) => {
       const norm = normalizeStr(c).toLowerCase();
       if (!norm || seenCandidate.has(norm)) continue;
       seenCandidate.add(norm);
-      if (!dbNameSet.has(norm)) {
-        const pos = normPageText.indexOf(normalizeStr(c));
-        unknownOnPage.push({ name: c, pagePos: pos === -1 ? Number.MAX_SAFE_INTEGER : pos });
+      if (dbNameSet.has(norm)) continue; // すでに無印一致として matched 側に入っている
+
+      const pos = normPageText.indexOf(normalizeStr(c));
+      const pagePos = pos === -1 ? Number.MAX_SAFE_INTEGER : pos;
+
+      // 「かすみ草とステラ 4期生」のように「◯期生」付きで、無印の方がDBにある場合は、
+      // 無印グループ単体の表示は消し、このサフィックス付き表示名で1件にまとめる
+      const stripped = stripGenerationSuffix(norm);
+      const hasGenerationSuffix = stripped && stripped !== norm;
+      const baseGroup = hasGenerationSuffix
+        ? groupIndex.byName.get(stripped) ||
+          groupIndex.byNameNoSpace.get(stripped.replace(/\s+/g, ""))
+        : null;
+
+      if (baseGroup) {
+        uniqueMap.delete(baseGroup.name);
+        uniqueMap.set(c, { ...baseGroup, name: c, pagePos });
+      } else {
+        unknownOnPage.push({ name: c, pagePos });
       }
     }
     unknownOnPage.sort((a, b) => a.pagePos - b.pagePos);
+
+    const unique = Array.from(uniqueMap.values()).sort((a, b) => a.pagePos - b.pagePos);
 
     res.json({
       ok: true,
