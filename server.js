@@ -205,6 +205,55 @@ function stripGenerationSuffix(normToken) {
   return normToken.replace(/\s*\(?\d+期生\)?\s*$/, "").trim();
 }
 
+// ---- 「もしかして」候補用: 編集距離ベースの類似度 ----
+
+function levenshtein(a, b) {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] =
+        a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function similarity(a, b) {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  return 1 - levenshtein(a, b) / maxLen;
+}
+
+// 完全一致しなかった時だけ、8割以上似ている候補を最大2件まで探す
+// (短すぎる文字列は誤爆しやすいので対象外にする)
+function findSuggestions(normToken, index, limit = 2, threshold = 0.8) {
+  if (normToken.length < 3) return [];
+  const scored = [];
+  for (const entry of index.normalized) {
+    if (entry.normName.length < 3) continue;
+    const sim = similarity(normToken, entry.normName);
+    if (sim >= threshold) scored.push({ name: entry.group.name, sim });
+  }
+  scored.sort((a, b) => b.sim - a.sim);
+  const seen = new Set();
+  const result = [];
+  for (const s of scored) {
+    if (seen.has(s.name)) continue;
+    seen.add(s.name);
+    result.push(s.name);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
 function matchListAgainstGroups(tokens, groups) {
   const index = buildGroupIndex(groups); // ここで1回だけDBを走査
   const results = [];
@@ -261,7 +310,11 @@ function matchListAgainstGroups(tokens, groups) {
     if (match) {
       results.push({ ...match, query: token, matchType, pagePos: orderIndex });
     } else {
-      notFound.push({ name: token, pagePos: orderIndex });
+      notFound.push({
+        name: token,
+        pagePos: orderIndex,
+        suggestions: findSuggestions(normToken, index),
+      });
     }
   });
 

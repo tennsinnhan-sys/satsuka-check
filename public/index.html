@@ -280,6 +280,18 @@
     white-space: nowrap;
     flex-shrink: 0;
   }
+  .suggestion-line {
+    margin-top: 6px;
+    padding-left: 22px;
+    font-size: 10.5px;
+    color: var(--muted);
+  }
+  .suggestion-link {
+    color: var(--flash);
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .suggestion-link:hover { opacity: 0.75; }
 
   /* --- status / results --- */
   #status {
@@ -1150,6 +1162,49 @@
     return normToken.replace(/\s*\(?\d+期生\)?\s*$/, '').trim();
   }
 
+  function levenshteinClient(a, b) {
+    const m = a.length, n = b.length;
+    if (m === 0) return n;
+    if (n === 0) return m;
+    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+      }
+    }
+    return dp[m][n];
+  }
+
+  function similarityClient(a, b) {
+    const maxLen = Math.max(a.length, b.length);
+    if (maxLen === 0) return 1;
+    return 1 - levenshteinClient(a, b) / maxLen;
+  }
+
+  function findSuggestionsClient(normToken, index, limit = 2, threshold = 0.8) {
+    if (normToken.length < 3) return [];
+    const scored = [];
+    for (const entry of index.normalized) {
+      if (entry.normName.length < 3) continue;
+      const sim = similarityClient(normToken, entry.normName);
+      if (sim >= threshold) scored.push({ name: entry.group.name, sim });
+    }
+    scored.sort((a, b) => b.sim - a.sim);
+    const seen = new Set();
+    const result = [];
+    for (const s of scored) {
+      if (seen.has(s.name)) continue;
+      seen.add(s.name);
+      result.push(s.name);
+      if (result.length >= limit) break;
+    }
+    return result;
+  }
+
   function matchListAgainstGroupsClient(tokens, groups) {
     const index = buildGroupIndexClient(groups);
     const results = [];
@@ -1197,7 +1252,11 @@
       if (match) {
         results.push({ ...match, query: token, matchType, pagePos: orderIndex });
       } else {
-        notFound.push({ name: token, pagePos: orderIndex });
+        notFound.push({
+          name: token,
+          pagePos: orderIndex,
+          suggestions: findSuggestionsClient(normToken, index),
+        });
       }
     });
 
@@ -1265,6 +1324,12 @@
   }
 
   function renderUnknownCard(g, index) {
+    const suggestions = g.suggestions || [];
+    const suggestionsHtml = suggestions.length
+      ? `<div class="suggestion-line">もしかして: ${suggestions
+          .map((s) => `<span class="suggestion-link" data-original="${escapeAttr(g.name)}" data-suggestion="${escapeAttr(s)}">${escapeHtml(s)}</span>`)
+          .join(' ／ ')}</div>`
+      : '';
     return `
       <div class="card unknown-card" draggable="true" data-index="${index}">
         <div class="card-row" data-role="toggle">
@@ -1273,6 +1338,7 @@
           <span class="card-name unknown-name">${escapeHtml(g.name)}</span>
           <span class="unknown-tag">未登録</span>
         </div>
+        ${suggestionsHtml}
       </div>
     `;
   }
@@ -1577,7 +1643,26 @@
           }
         });
       }
+
+      card.querySelectorAll('.suggestion-link').forEach((el) => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          applySuggestion(el.dataset.original, el.dataset.suggestion);
+        });
+      });
     });
+  }
+
+  function applySuggestion(original, suggestion) {
+    const idx = listInput.value.indexOf(original);
+    if (idx === -1) return;
+    listInput.value =
+      listInput.value.slice(0, idx) + suggestion + listInput.value.slice(idx + original.length);
+    if (listForm.requestSubmit) {
+      listForm.requestSubmit();
+    } else {
+      listForm.dispatchEvent(new Event('submit', { cancelable: true }));
+    }
   }
 
   function onDragStart(e) {
@@ -1842,7 +1927,7 @@
       const notFoundEntries = data.notFound || [];
       const mergedList = [
         ...data.groups.map((g) => ({ ...g, _unknown: false })),
-        ...notFoundEntries.map((n) => ({ name: n.name, pagePos: n.pagePos, _unknown: true })),
+        ...notFoundEntries.map((n) => ({ name: n.name, pagePos: n.pagePos, _unknown: true, suggestions: n.suggestions || [] })),
       ];
       mergedList.sort((a, b) => (a.pagePos ?? 0) - (b.pagePos ?? 0));
 
@@ -1875,7 +1960,7 @@
 
       const mergedListOffline = [
         ...matched.map((g) => ({ ...g, _unknown: false })),
-        ...notFound.map((n) => ({ name: n.name, pagePos: n.pagePos, _unknown: true })),
+        ...notFound.map((n) => ({ name: n.name, pagePos: n.pagePos, _unknown: true, suggestions: n.suggestions || [] })),
       ];
       mergedListOffline.sort((a, b) => (a.pagePos ?? 0) - (b.pagePos ?? 0));
 
