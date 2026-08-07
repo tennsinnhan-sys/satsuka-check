@@ -1306,6 +1306,7 @@
     if (value === '不可') return { cls: 'ng', icon: '✕', label: '不可' };
     if (value === '※') return { cls: 'maybe', icon: '△', label: '要確認' };
     if (value === '一眼') return { cls: 'ok', icon: '📷', label: '一眼のみ可' };
+    if (value === '一眼※') return { cls: 'ok', icon: '📷', mark: '!', label: '一眼※(要掲載確認)' };
     if (value === 'スマホ') return { cls: 'ok', icon: '📱', label: 'スマホのみ可' };
     if (value === 'HEROINES') return { cls: 'heroines', text: 'HEROINES', label: 'HEROINES' };
     return { cls: 'unk', icon: '?', label: '不明' };
@@ -1703,6 +1704,7 @@
     { value: '可', cls: 'ok' },
     { value: '可※', cls: 'ok' },
     { value: '一眼', cls: 'ok' },
+    { value: '一眼※', cls: 'ok' },
     { value: 'スマホ', cls: 'ok' },
     { value: '不可', cls: 'ng' },
     { value: '※', cls: 'maybe' },
