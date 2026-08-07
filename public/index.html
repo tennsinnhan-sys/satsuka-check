@@ -625,6 +625,26 @@
     gap: 5px;
     flex-shrink: 0;
   }
+  .checked-date {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--ink-dim);
+    flex-shrink: 0;
+    width: 62px;
+    text-align: center;
+  }
+  .checked-date.stale {
+    color: var(--ng);
+    font-weight: 700;
+  }
+  .col-headers span.date-label {
+    width: 62px;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    color: var(--ink-dim);
+    flex-shrink: 0;
+  }
 
   .col-headers {
     display: flex;
@@ -1320,6 +1340,20 @@
     return `<span class="badge ${info.cls} icon" title="${escapeAttr(info.label)}">${info.icon}${mark}</span>`;
   }
 
+  function renderCheckedDate(dateStr) {
+    if (!dateStr) return `<span class="checked-date">—</span>`;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return `<span class="checked-date">—</span>`;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const text = `${y}/${m}/${day}`;
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const stale = d < sixMonthsAgo;
+    return `<span class="checked-date${stale ? ' stale' : ''}" title="レギュ確認日${stale ? '(半年以上前・要再確認)' : ''}">${text}</span>`;
+  }
+
   function isUrl(s) {
     return typeof s === 'string' && /^https?:\/\//i.test(s);
   }
@@ -1365,6 +1399,7 @@
           <span class="order-num">${index + 1}</span>
           <span class="card-name">${escapeHtml(g.name)}</span>
           ${g._overridden ? '<span class="edit-mark" title="この場限定で編集済み">✎</span>' : ''}
+          ${renderCheckedDate(g.checkedDate)}
           <div class="badge-group">
             ${renderBadge(photo)}
             ${renderBadge(video)}
@@ -1571,7 +1606,7 @@
     `;
 
     const colHeaders = matchedCount > 0
-      ? `<div class="col-headers"><span class="spacer"></span><span class="col-label">静止画</span><span class="col-label">動画</span><span class="chevron-spacer"></span></div>`
+      ? `<div class="col-headers"><span class="spacer"></span><span class="date-label">確認日</span><span class="col-label">静止画</span><span class="col-label">動画</span><span class="chevron-spacer"></span></div>`
       : '';
 
     const cards = currentGroups.length
