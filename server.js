@@ -501,6 +501,8 @@ app.post("/api/lookup", async (req, res) => {
     const pageText = $("body").text().replace(/\s+/g, " ");
     // 全角/半角(英数字・記号・スペース)を区別せず照合できるよう正規化
     const normPageText = normalizeStr(pageText);
+    // スペースの有無だけが違う表記ゆれ(例: "SAI ²Rium" ↔ "SAI²Rium")を許容するための空白除去版
+    const normPageTextNoSpace = normPageText.replace(/\s+/g, "");
     const rawText = $("body")
       .text()
       .split("\n")
@@ -570,7 +572,15 @@ app.post("/api/lookup", async (req, res) => {
     const matched = [];
     for (const g of groups) {
       if (g.name && g.name.length >= 2) {
-        const pos = normPageText.indexOf(normalizeStr(g.name));
+        const normName = normalizeStr(g.name);
+        let pos = normPageText.indexOf(normName);
+        if (pos === -1) {
+          // スペースの有無だけが違う表記ゆれを許容(例: "SAI ²Rium" ↔ "SAI²Rium")
+          const noSpaceName = normName.replace(/\s+/g, "");
+          if (noSpaceName.length >= 2) {
+            pos = normPageTextNoSpace.indexOf(noSpaceName); // 並び順用の概算位置
+          }
+        }
         if (pos !== -1) {
           matched.push({ ...g, _pos: pos });
         }
@@ -594,13 +604,16 @@ app.post("/api/lookup", async (req, res) => {
     const rawCandidates = extractCandidatesFromSite(hostname, rawText, metaDesc);
     const candidates = mergeKnownSplitNames(rawCandidates, groups);
     const dbNameSet = new Set(groups.map((g) => normalizeStr(g.name).toLowerCase()));
+    const dbNameSetNoSpace = new Set(
+      groups.map((g) => normalizeStr(g.name).toLowerCase().replace(/\s+/g, ""))
+    );
     const unknownOnPage = [];
     const seenCandidate = new Set();
     for (const c of candidates) {
       const norm = normalizeStr(c).toLowerCase();
       if (!norm || seenCandidate.has(norm)) continue;
       seenCandidate.add(norm);
-      if (dbNameSet.has(norm)) continue; // すでに無印一致として matched 側に入っている
+      if (dbNameSet.has(norm) || dbNameSetNoSpace.has(norm.replace(/\s+/g, ""))) continue; // すでに matched 側に入っている
 
       const pos = normPageText.indexOf(normalizeStr(c));
       const pagePos = pos === -1 ? Number.MAX_SAFE_INTEGER : pos;
