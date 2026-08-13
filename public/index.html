@@ -1690,10 +1690,17 @@
   }
 
   function applySuggestion(original, suggestion) {
-    const idx = listInput.value.indexOf(original);
-    if (idx === -1) return;
-    listInput.value =
-      listInput.value.slice(0, idx) + suggestion + listInput.value.slice(idx + original.length);
+    const raw = listInput.value;
+    let idx = raw.indexOf(original);
+    if (idx === -1) {
+      // 全角/半角などの表記ゆれで生テキストと完全一致しない場合、
+      // NFKC正規化した文字列上で位置を探す(英数字・スペースの正規化は文字数を変えないため、
+      // 見つかった位置をそのまま生テキストの位置として使える)
+      const normIdx = raw.normalize('NFKC').indexOf(original);
+      if (normIdx === -1) return;
+      idx = normIdx;
+    }
+    listInput.value = raw.slice(0, idx) + suggestion + raw.slice(idx + original.length);
     if (listForm.requestSubmit) {
       listForm.requestSubmit();
     } else {
