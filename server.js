@@ -813,7 +813,7 @@ post("/api/lookup", async (req, res) => {
         uniqueMap.delete(baseGroup.name);
         uniqueMap.set(c, { ...baseGroup, name: c, pagePos });
       } else {
-        unknownOnPage.push({ name: c, pagePos });
+        unknownOnPage.push({ name: c, pagePos, suggestions: findSuggestions(norm, groupIndex) });
       }
     }
     unknownOnPage.sort((a, b) => a.pagePos - b.pagePos);

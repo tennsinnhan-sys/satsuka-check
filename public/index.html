@@ -1920,7 +1920,34 @@
     });
   }
 
-  function applySuggestion(original, suggestion) {
+  async function applySuggestion(original, suggestion) {
+    if (currentTabMode === 'url') {
+      // URL照合はページから抽出した文字列が元なので、リストのように書き換えて
+      // 再送信することができない。代わりに、DB全件データから候補の実データを取得し、
+      // 該当カードをその場で「登録済み」に差し替える。
+      let matchGroup = (loadGroupsCache()?.groups || []).find((g) => g.name === suggestion);
+      if (!matchGroup) {
+        // 端末のキャッシュに無い(未取得/古い)場合は、その場でDB全件を取得する
+        try {
+          const res = await fetch('/api/groups');
+          const data = await res.json();
+          if (data.ok) {
+            saveGroupsCache(data.groups);
+            matchGroup = data.groups.find((g) => g.name === suggestion);
+          }
+        } catch (e) {
+          // オフライン等で取得できない場合は諦める
+        }
+      }
+      if (!matchGroup) return;
+      const idx = currentGroups.findIndex((g) => g._unknown && g.name === original);
+      if (idx === -1) return;
+      currentGroups[idx] = { ...matchGroup, _unknown: false, pagePos: currentGroups[idx].pagePos };
+      currentUnknownOnPage = currentUnknownOnPage.filter((n) => n !== original);
+      draw();
+      return;
+    }
+
     const raw = listInput.value;
     let idx = raw.indexOf(original);
     if (idx === -1) {
@@ -2125,7 +2152,7 @@
       const unknownEntries = data.unknownOnPage || [];
       const merged = [
         ...data.groups.map((g) => ({ ...g, _unknown: false })),
-        ...unknownEntries.map((u) => ({ name: u.name, pagePos: u.pagePos, _unknown: true })),
+        ...unknownEntries.map((u) => ({ name: u.name, pagePos: u.pagePos, _unknown: true, suggestions: u.suggestions || [] })),
       ];
       merged.sort((a, b) => (a.pagePos ?? 0) - (b.pagePos ?? 0));
 
