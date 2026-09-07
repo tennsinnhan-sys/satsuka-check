@@ -1,20 +1,82 @@
-import express from "express";
 import * as cheerio from "cheerio";
-import { Client } from "@notionhq/client";
-import "dotenv/config";
 
-const app = express();
-app.use(express.json());
-app.use(express.static("public"));
+// ExpressとPI依存(body-parser -> iconv-lite)がCloudflare Workersのバンドルと
+// 衝突する既知の問題があるため、Expressは使わずFetch APIベースの最小限の
+// ルーター/req-resシムを自前で用意する。ハンドラの書き方(req.body / res.json など)は
+// Express時代とほぼ同じにして、既存ロジックへの変更を最小限にしている。
+const routes = [];
+function get(path, handler) {
+  routes.push({ method: "GET", path, handler });
+}
+function post(path, handler) {
+  routes.push({ method: "POST", path, handler });
+}
+function createRes() {
+  let resolve;
+  const promise = new Promise((r) => {
+    resolve = r;
+  });
+  let statusCode = 200;
+  const res = {
+    status(code) {
+      statusCode = code;
+      return res;
+    },
+    json(obj) {
+      resolve(
+        new Response(JSON.stringify(obj), {
+          status: statusCode,
+          headers: { "content-type": "application/json; charset=utf-8" },
+        })
+      );
+    },
+  };
+  return { res, promise };
+}
 
 if (!process.env.NOTION_TOKEN) {
   console.warn(
-    "[警告] NOTION_TOKEN が設定されていません。.env ファイルを作成してください(.env.example を参考に)。"
+    "[警告] NOTION_TOKEN が設定されていません。`wrangler secret put NOTION_TOKEN` で設定してください(ローカル開発時は .dev.vars ファイルでも可)。"
   );
 }
 
-const notion = new Client({ auth: process.env.NOTION_TOKEN });
 const DATABASE_ID = process.env.NOTION_DATABASE_ID;
+const NOTION_VERSION = "2022-06-28";
+
+// ---- 検索履歴(Cloudflare KVにサーバー側保存。全端末で共通の履歴になる) ----
+const HISTORY_MAX = 30;
+const HISTORY_KV_KEYS = { url: "history:url", list: "history:list" };
+
+async function loadHistoryKV(env, kind) {
+  if (!env.HISTORY_KV) return [];
+  const arr = await env.HISTORY_KV.get(HISTORY_KV_KEYS[kind], "json");
+  return Array.isArray(arr) ? arr : [];
+}
+
+async function saveHistoryKV(env, kind, list) {
+  if (!env.HISTORY_KV) return;
+  await env.HISTORY_KV.put(HISTORY_KV_KEYS[kind], JSON.stringify(list.slice(0, HISTORY_MAX)));
+}
+
+// @notionhq/client SDKがCloudflare Workers上で原因不明のエラー
+// ("Cannot read properties of undefined (reading 'call')")を起こすため、
+// SDKを使わずNotionのREST APIを直接fetchで呼び出す(利用箇所はデータベース照会1箇所のみ)。
+async function notionDatabaseQuery(cursor) {
+  const resp = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.NOTION_TOKEN}`,
+      "Notion-Version": NOTION_VERSION,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(cursor ? { start_cursor: cursor, page_size: 100 } : { page_size: 100 }),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => "");
+    throw new Error(`Notion API エラー (HTTP ${resp.status}): ${errText}`);
+  }
+  return resp.json();
+}
 
 // ---- Notion DB キャッシュ ----
 let groupCache = [];
@@ -73,11 +135,7 @@ async function fetchAllGroups() {
   let cursor = undefined;
 
   do {
-    const res = await notion.databases.query({
-      database_id: DATABASE_ID,
-      start_cursor: cursor,
-      page_size: 100,
-    });
+    const res = await notionDatabaseQuery(cursor);
 
     for (const page of res.results) {
       const g = pageToGroup(page);
@@ -335,7 +393,7 @@ function matchListAgainstGroups(tokens, groups) {
 // ---- API ----
 
 // オフライン時にクライアント側でキャッシュして使うための、DB全件返却API
-app.get("/api/groups", async (req, res) => {
+get("/api/groups", async (req, res) => {
   try {
     const groups = await getGroups();
     res.json({ ok: true, groups, dbTotal: groups.length, fetchedAt: Date.now() });
@@ -345,10 +403,75 @@ app.get("/api/groups", async (req, res) => {
   }
 });
 
-app.post("/api/refresh", async (req, res) => {
+post("/api/refresh", async (req, res) => {
   try {
     const groups = await getGroups(true);
     res.json({ ok: true, count: groups.length });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// ---- 検索履歴API(サーバー側=Cloudflare KVに保存。全端末で共通) ----
+get("/api/history", async (req, res, env) => {
+  try {
+    const [url, list] = await Promise.all([
+      loadHistoryKV(env, "url"),
+      loadHistoryKV(env, "list"),
+    ]);
+    res.json({ ok: true, url, list });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+post("/api/history/add", async (req, res, env) => {
+  try {
+    const { kind, entry } = req.body || {};
+    if (kind !== "url" && kind !== "list") {
+      return res.status(400).json({ ok: false, error: "kindが不正です" });
+    }
+    if (!entry || typeof entry !== "object") {
+      return res.status(400).json({ ok: false, error: "entryが不正です" });
+    }
+    const list = await loadHistoryKV(env, kind);
+    const dedupeKey = kind === "url" ? entry.url : entry.text;
+    const filtered = list.filter((it) => (kind === "url" ? it.url : it.text) !== dedupeKey);
+    filtered.unshift({ ...entry, ts: Date.now() });
+    const capped = filtered.slice(0, HISTORY_MAX);
+    await saveHistoryKV(env, kind, capped);
+    res.json({ ok: true, list: capped });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+post("/api/history/remove", async (req, res, env) => {
+  try {
+    const { kind, ts } = req.body || {};
+    if (kind !== "url" && kind !== "list") {
+      return res.status(400).json({ ok: false, error: "kindが不正です" });
+    }
+    const list = (await loadHistoryKV(env, kind)).filter((it) => it.ts !== ts);
+    await saveHistoryKV(env, kind, list);
+    res.json({ ok: true, list });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+post("/api/history/clear", async (req, res, env) => {
+  try {
+    const { kind } = req.body || {};
+    if (kind !== "url" && kind !== "list") {
+      return res.status(400).json({ ok: false, error: "kindが不正です" });
+    }
+    await saveHistoryKV(env, kind, []);
+    res.json({ ok: true, list: [] });
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
@@ -359,22 +482,81 @@ app.post("/api/refresh", async (req, res) => {
 // (DBに登録済みかどうかの判定に使うだけで、DB自体は書き換えない)
 
 function splitPerformerLine(line) {
+  // スペースあり(" / ")・なし("/")どちらのスラッシュ区切りにも対応。
+  // "22/7" のようにスラッシュを含む名前は、この時点では一旦壊れるが、
+  // mergeKnownSplitNames で DB の実名と突き合わせて復元する。
   return line
-    .split(/\s+\/\s+/)
+    .split(/\s*\/\s*/)
     .map((s) => s.trim())
     .filter(Boolean);
 }
 
 function extractTiget(rawText) {
-  const lines = rawText.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trim() === "出演者" || lines[i].trim() === "出演") {
-      for (let j = i + 1; j < lines.length; j++) {
-        if (lines[j].trim()) return splitPerformerLine(lines[j].trim());
-      }
+  const lines = rawText.split("\n").map((l) => l.trim());
+
+  const isHeaderLine = (l) =>
+    l === "出演者" || l === "出演" || /^[【\[]出演(者)?[】\]]/.test(l);
+
+  const headerIdx = lines.findIndex(isHeaderLine);
+  if (headerIdx === -1) return [];
+
+  const names = [];
+  // 最初に確定した形式("numbered"=「1.グループ名」/ "slash"=スラッシュ区切り)を
+  // 以後も使い続ける。無関係な行(主催者表記など)を誤って取り込まないため。
+  let mode = null;
+
+  for (let j = headerIdx + 1; j < lines.length; j++) {
+    const line = lines[j];
+    if (!line) {
+      if (mode) break; // リスト開始後の空行で打ち切り
+      continue;
     }
+
+    const numberedMatch = line.match(/^\d+\.\s*(.+)$/);
+    const additionalMatch = line.match(/^追加(出演)?[:：]\s*(.+)$/);
+
+    if (mode === null) {
+      if (numberedMatch) {
+        mode = "numbered";
+        names.push(numberedMatch[1].trim());
+        continue;
+      }
+      if (additionalMatch) {
+        mode = "slash";
+        names.push(...splitPerformerLine(additionalMatch[2].trim()));
+        continue;
+      }
+      if (line.includes("/")) {
+        mode = "slash";
+        names.push(...splitPerformerLine(line));
+        continue;
+      }
+      // 見出し直後がどのパターンにも合わなければ抽出失敗として終了
+      break;
+    }
+
+    if (mode === "numbered") {
+      if (numberedMatch) {
+        names.push(numberedMatch[1].trim());
+        continue;
+      }
+      break; // 番号なし行が来たらリストの終わり
+    }
+
+    // mode === "slash"
+    if (additionalMatch) {
+      names.push(...splitPerformerLine(additionalMatch[2].trim()));
+      continue;
+    }
+    if (/^[■●]/.test(line)) break;
+    if (line.includes("/")) {
+      names.push(...splitPerformerLine(line));
+      continue;
+    }
+    break; // スラッシュを含まない行が来たらリストの終わり
   }
-  return [];
+
+  return names;
 }
 
 function extractTicketDive(rawText, metaDesc) {
@@ -473,7 +655,7 @@ function extractCandidatesFromSite(hostname, rawText, metaDesc) {
   return [];
 }
 
-app.post("/api/lookup", async (req, res) => {
+post("/api/lookup", async (req, res) => {
   const { url } = req.body || {};
 
   if (!url || !/^https?:\/\//i.test(url)) {
@@ -571,7 +753,7 @@ app.post("/api/lookup", async (req, res) => {
     // ページ内で最初に登場する位置を記録し、その順番で並べる(タイムテーブル順に近づくことが多いため)
     const matched = [];
     for (const g of groups) {
-      if (g.name && g.name.length >= 2) {
+      if (g.name && g.name.length >= 1) {
         const normName = normalizeStr(g.name);
         let pos = normPageText.indexOf(normName);
         if (pos === -1) {
@@ -655,7 +837,7 @@ app.post("/api/lookup", async (req, res) => {
   }
 });
 
-app.post("/api/lookup-list", async (req, res) => {
+post("/api/lookup-list", async (req, res) => {
   const { text } = req.body || {};
 
   if (!text || !text.trim()) {
@@ -687,7 +869,29 @@ app.post("/api/lookup-list", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`起動しました: http://localhost:${PORT}`);
-});
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const route = routes.find((r) => r.method === request.method && r.path === url.pathname);
+
+    if (!route) {
+      // "/api/*" 以外はwrangler.jsoncのrun_worker_first設定により
+      // 本来ここに来ないが、念のためAssetsへフォールバックする
+      if (env.ASSETS) return env.ASSETS.fetch(request);
+      return new Response("Not Found", { status: 404 });
+    }
+
+    let body = {};
+    if (request.method === "POST") {
+      try {
+        body = await request.json();
+      } catch (e) {
+        body = {};
+      }
+    }
+    const req = { body, headers: Object.fromEntries(request.headers), method: request.method };
+    const { res, promise } = createRes();
+    route.handler(req, res, env);
+    return promise;
+  },
+};

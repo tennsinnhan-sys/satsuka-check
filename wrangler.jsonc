@@ -1,0 +1,30 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "satsuka-check",
+	"main": "server.js",
+	// 今日の日付にしておけばOK(Node.js互換機能の挙動を決める基準日)
+	"compatibility_date": "2026-08-20",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	// public/ 以下の静的ファイル(index.html, manifest.json, sw.js, アイコン類)を配信する設定。
+	// "/api/*" だけ先にWorker(server.js)へ渡し、それ以外は静的ファイルとしてエッジから直接配信する。
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS",
+		"run_worker_first": [
+			"/api/*"
+		]
+	},
+	// 検索履歴の保存先(サーバー側=Cloudflare KV)。
+	// "id" は `npx wrangler kv namespace create HISTORY_KV` を実行して発行されたIDに置き換えてください。
+	"kv_namespaces": [
+		{
+			"binding": "HISTORY_KV",
+			"id": "6e112470365240d6abe223ab18fb7b39"
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
+}

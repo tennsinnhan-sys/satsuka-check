@@ -201,6 +201,74 @@
     border-color: var(--flash);
     color: var(--flash);
   }
+  .tab.history-btn {
+    margin-left: auto;
+  }
+  .history-panel {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 6px;
+    margin-bottom: 14px;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+  .history-empty {
+    padding: 14px 10px;
+    color: var(--muted);
+    font-size: 12.5px;
+    text-align: center;
+  }
+  .history-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border-radius: 9px;
+    cursor: pointer;
+  }
+  .history-item:hover { background: var(--stage-deep); }
+  .history-item .hi-main {
+    flex: 1;
+    min-width: 0;
+  }
+  .history-item .hi-query {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .history-item .hi-meta {
+    font-size: 10.5px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .history-item .hi-del {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px 6px;
+  }
+  .history-item .hi-del:hover { color: var(--ng); }
+  .history-clear-row {
+    text-align: right;
+    padding: 4px 8px 2px;
+  }
+  .history-clear-row button {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 11px;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .history-clear-row button:hover { color: var(--ng); }
 
   .stub textarea {
     flex: 1 1 100%;
@@ -910,7 +978,10 @@
     <div class="tabs">
       <button type="button" class="tab active" id="tabUrl">チケットURLで照合</button>
       <button type="button" class="tab" id="tabList">グループ名リストで照合</button>
+      <button type="button" class="tab history-btn" id="historyToggle">履歴</button>
     </div>
+
+    <div class="history-panel" id="historyPanel" style="display:none;"></div>
 
     <form id="lookupForm" autocomplete="off">
       <div class="stub">
@@ -971,6 +1042,8 @@
   const listGoBtn = document.getElementById('listGoBtn');
   const tabUrl = document.getElementById('tabUrl');
   const tabList = document.getElementById('tabList');
+  const historyToggle = document.getElementById('historyToggle');
+  const historyPanel = document.getElementById('historyPanel');
   const statusEl = document.getElementById('status');
   const resultsEl = document.getElementById('results');
   const dbCountEl = document.getElementById('dbCount');
@@ -1021,6 +1094,160 @@
     const pad = (n) => String(n).padStart(2, '0');
     return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
+
+  // ---- 検索履歴(サーバー側=Cloudflare KVに保存。PC/スマホなど全端末で共通) ----
+  let historyCache = { url: [], list: [] };
+  let historyLoadFailed = false;
+
+  async function fetchHistoryFromServer() {
+    try {
+      const res = await fetch('/api/history');
+      const data = await res.json();
+      if (data.ok) {
+        historyCache = { url: data.url || [], list: data.list || [] };
+        historyLoadFailed = false;
+      } else {
+        historyLoadFailed = true;
+      }
+    } catch (e) {
+      historyLoadFailed = true;
+    }
+    return historyCache;
+  }
+
+  async function addHistoryEntry(kind, entry) {
+    try {
+      const res = await fetch('/api/history/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, entry }),
+      });
+      const data = await res.json();
+      if (data.ok) historyCache[kind] = data.list;
+    } catch (e) {
+      // オフライン等で保存できなくても、照合結果の表示自体は妨げない
+    }
+  }
+
+  async function removeHistoryEntry(kind, ts) {
+    try {
+      const res = await fetch('/api/history/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, ts }),
+      });
+      const data = await res.json();
+      if (data.ok) historyCache[kind] = data.list;
+    } catch (e) {
+      // 何もしない(次回開いた時に再取得される)
+    }
+    renderHistoryPanel();
+  }
+
+  async function clearHistory(kind) {
+    try {
+      const res = await fetch('/api/history/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind }),
+      });
+      const data = await res.json();
+      if (data.ok) historyCache[kind] = data.list;
+    } catch (e) {
+      // 何もしない
+    }
+    renderHistoryPanel();
+  }
+
+  function renderHistoryPanel() {
+    const kind = currentTabMode;
+
+    if (historyLoadFailed) {
+      historyPanel.innerHTML = `<div class="history-empty">オフラインのため履歴を取得できません</div>`;
+      return;
+    }
+
+    const list = historyCache[kind] || [];
+
+    if (list.length === 0) {
+      historyPanel.innerHTML = `<div class="history-empty">まだ履歴がありません</div>`;
+      return;
+    }
+
+    const rows = list.map((it) => {
+      const mainText = kind === 'url' ? (it.title || it.url) : (it.eventName || it.text.split('\n')[0]);
+      const subText = kind === 'url' ? it.url : it.text.replace(/\n/g, ' / ');
+      return `
+        <div class="history-item" data-ts="${it.ts}">
+          <div class="hi-main">
+            <div class="hi-query">${escapeHtml(mainText || "")}</div>
+            <div class="hi-meta">${escapeHtml(subText || "").slice(0, 60)} ・ ${formatCachedAt(it.ts)}</div>
+          </div>
+          <button type="button" class="hi-del" title="この履歴を削除" data-del-ts="${it.ts}">✕</button>
+        </div>`;
+    }).join('');
+
+    historyPanel.innerHTML = rows + `
+      <div class="history-clear-row">
+        <button type="button" id="historyClearBtn">履歴を全て消去</button>
+      </div>`;
+
+    historyPanel.querySelectorAll('.history-item').forEach((row) => {
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.hi-del')) return;
+        const ts = Number(row.dataset.ts);
+        const entry = list.find((it) => it.ts === ts);
+        if (!entry) return;
+        closeHistoryPanel();
+        if (kind === 'url') {
+          urlInput.value = entry.url;
+          form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit', { cancelable: true }));
+        } else {
+          listEventName.value = entry.eventName || '';
+          listInput.value = entry.text;
+          listForm.requestSubmit ? listForm.requestSubmit() : listForm.dispatchEvent(new Event('submit', { cancelable: true }));
+        }
+      });
+    });
+
+    historyPanel.querySelectorAll('.hi-del').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeHistoryEntry(kind, Number(btn.dataset.delTs));
+      });
+    });
+
+    const clearBtn = document.getElementById('historyClearBtn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', () => clearHistory(kind));
+    }
+  }
+
+  async function openHistoryPanel() {
+    historyPanel.innerHTML = `<div class="history-empty">読み込み中…</div>`;
+    historyPanel.style.display = '';
+    await fetchHistoryFromServer();
+    renderHistoryPanel();
+  }
+
+  function closeHistoryPanel() {
+    historyPanel.style.display = 'none';
+  }
+
+  historyToggle.addEventListener('click', () => {
+    const isOpen = historyPanel.style.display !== 'none';
+    if (isOpen) {
+      closeHistoryPanel();
+    } else {
+      openHistoryPanel();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (historyPanel.style.display === 'none') return;
+    if (historyPanel.contains(e.target) || historyToggle.contains(e.target)) return;
+    closeHistoryPanel();
+  });
 
   // ---- URLごとの編集内容の保存(DBには反映しない、同じチケットURLを再照合した時だけ復元) ----
   const EDITS_STORAGE_KEY = 'satsuka_check_url_edits_v1';
@@ -1292,7 +1519,10 @@
     return { matched: unique, notFound };
   }
 
+  let currentTabMode = 'url';
+
   function switchTab(mode) {
+    currentTabMode = mode;
     const isUrl = mode === 'url';
     tabUrl.classList.toggle('active', isUrl);
     tabList.classList.toggle('active', !isUrl);
@@ -1305,6 +1535,7 @@
     currentNotFound = [];
     currentEventInfo = null;
     currentUnknownOnPage = [];
+    closeHistoryPanel();
   }
 
   tabUrl.addEventListener('click', () => switchTab('url'));
@@ -1906,6 +2137,8 @@
       currentEditUrl = url;
       currentUnknownOnPage = unknownEntries.map((u) => u.name);
 
+      addHistoryEntry('url', { url, title: currentEventInfo ? currentEventInfo.title : '' });
+
       const savedEdits = getEditsForUrl(url);
       let restoredCount = 0;
       if (savedEdits) {
@@ -1980,6 +2213,7 @@
       currentEventInfo = eventName ? { title: eventName } : null;
       currentEditUrl = null;
       currentUnknownOnPage = notFoundEntries.map((n) => n.name);
+      addHistoryEntry('list', { text, eventName });
       draw();
     } catch (err) {
       // サーバーに届かない(オフライン等) → 端末保存のDBスナップショットで代わりに照合
@@ -2013,6 +2247,7 @@
       currentEventInfo = eventName ? { title: eventName } : null;
       currentEditUrl = null;
       currentUnknownOnPage = notFound.map((n) => n.name);
+      addHistoryEntry('list', { text, eventName });
       draw();
     } finally {
       listGoBtn.disabled = false;
