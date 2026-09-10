@@ -411,6 +411,11 @@
     cursor: grab;
   }
   .stage-card.dragging { opacity: 0.4; }
+  .stage-card-name {
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+  }
   .stage-list-empty {
     padding: 16px;
     text-align: center;
@@ -426,7 +431,7 @@
     padding-bottom: 6px;
   }
   .stage-column {
-    flex: 0 0 180px;
+    flex: 0 0 240px;
     border: 1px solid var(--line);
     border-top: 4px solid var(--line);
     border-radius: 12px;
@@ -1148,6 +1153,56 @@
     margin-top: 5px;
     padding-left: 22px;
   }
+  .export-columns-wrap {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .export-column {
+    width: 220px;
+    flex-shrink: 0;
+    background: var(--stage);
+    border-radius: 12px;
+    border-top: 4px solid var(--line);
+    padding: 10px;
+    box-sizing: border-box;
+  }
+  .export-column-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+    font-size: 12.5px;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+  .export-col-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .export-column-body { display: flex; flex-direction: column; gap: 5px; }
+  .export-col-row {
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 7px 8px;
+  }
+  .export-col-row-main { display: flex; align-items: center; gap: 5px; }
+  .export-col-row .export-name {
+    flex: 1;
+    min-width: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 11.5px;
+    color: var(--ink);
+    word-break: break-word;
+  }
+  .export-col-row .export-note {
+    font-size: 10px;
+    color: var(--ink-dim);
+    margin-top: 4px;
+  }
   .export-credit {
     text-align: right;
     margin-top: 14px;
@@ -1527,7 +1582,7 @@
       return `
         <div class="stage-card" ${borderStyle} draggable="true" data-stage-drag-name="${escapeAttr(g.name)}">
           <span>⠿</span>
-          <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(g.name)}</span>
+          <span class="stage-card-name">${escapeHtml(g.name)}</span>
           <span class="unknown-tag">未登録</span>
         </div>
       `;
@@ -1537,7 +1592,7 @@
     return `
       <div class="stage-card" ${borderStyle} draggable="true" data-stage-drag-name="${escapeAttr(g.name)}">
         <span>⠿</span>
-        <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(g.name)}</span>
+        <span class="stage-card-name">${escapeHtml(g.name)}</span>
         <div class="badge-group">
           ${renderBadge(photo)}
           ${renderBadge(video)}
@@ -1548,8 +1603,16 @@
 
   function renderStageTabsView() {
     const unassignedCount = membersOfStage('unassigned').length;
+
+    // 未振り分けが0件になっていて、かつ今それを見ている場合は、最初のステージへ自動的に切り替える
+    if (unassignedCount === 0 && activeStageTabId === 'unassigned' && currentStages.length > 0) {
+      activeStageTabId = currentStages[0].id;
+    }
+
     const tabsHtml = [
-      `<div class="stage-tab ${activeStageTabId === 'unassigned' ? 'active' : ''}" data-tab-id="unassigned">未振り分け (${unassignedCount})</div>`,
+      unassignedCount > 0
+        ? `<div class="stage-tab ${activeStageTabId === 'unassigned' ? 'active' : ''}" data-tab-id="unassigned">未振り分け (${unassignedCount})</div>`
+        : '',
       ...currentStages.map((s) => `
         <div class="stage-tab ${activeStageTabId === s.id ? 'active' : ''}" data-tab-id="${s.id}" ${activeStageTabId === s.id ? `style="--active-stage-color:${s.color};"` : ''}>
           <input type="color" class="stage-color-input" data-color-stage="${s.id}" value="${s.color}" title="色を変更" />
@@ -1574,7 +1637,7 @@
     const columns = [
       { id: 'unassigned', name: '未振り分け', color: null },
       ...currentStages,
-    ];
+    ].filter((col) => col.id !== 'unassigned' || membersOfStage('unassigned').length > 0);
     const columnsHtml = columns.map((col) => {
       const members = membersOfStage(col.id);
       const body = members.length
@@ -2149,24 +2212,25 @@
   }
 
   // ---- 結果を画像として書き出す(html2canvas) ----
+  function buildExportEventHtml() {
+    if (!currentEventInfo || !currentEventInfo.title) return '';
+    const meta = [];
+    if (currentEventInfo.date) meta.push(`<span>📅 ${escapeHtml(currentEventInfo.date)}</span>`);
+    if (currentEventInfo.venue) meta.push(`<span>📍 ${escapeHtml(currentEventInfo.venue)}</span>`);
+    return `
+      <div class="export-event">
+        ${currentEventInfo.image ? `<img src="${escapeAttr(currentEventInfo.image)}" alt="" crossorigin="anonymous">` : ''}
+        <div>
+          <div class="export-event-title">${escapeHtml(currentEventInfo.title)}</div>
+          ${meta.length ? `<div class="export-event-meta">${meta.join('')}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
   function buildExportHtml() {
     const matched = currentGroups.filter((g) => !g._unknown).length;
-
-    let eventHtml = '';
-    if (currentEventInfo && currentEventInfo.title) {
-      const meta = [];
-      if (currentEventInfo.date) meta.push(`<span>📅 ${escapeHtml(currentEventInfo.date)}</span>`);
-      if (currentEventInfo.venue) meta.push(`<span>📍 ${escapeHtml(currentEventInfo.venue)}</span>`);
-      eventHtml = `
-        <div class="export-event">
-          ${currentEventInfo.image ? `<img src="${escapeAttr(currentEventInfo.image)}" alt="" crossorigin="anonymous">` : ''}
-          <div>
-            <div class="export-event-title">${escapeHtml(currentEventInfo.title)}</div>
-            ${meta.length ? `<div class="export-event-meta">${meta.join('')}</div>` : ''}
-          </div>
-        </div>
-      `;
-    }
+    const eventHtml = buildExportEventHtml();
 
     const rows = currentGroups.map((g, i) => {
       if (g._unknown) {
@@ -2209,6 +2273,64 @@
     `;
   }
 
+  // ステージ分け(横並びカラム表示)の状態で「画像で保存」した場合は、
+  // 通常の縦一覧ではなくカラム(ステージ別)のレイアウトをそのまま画像化する。
+  function buildExportHtmlColumns() {
+    const eventHtml = buildExportEventHtml();
+
+    const columns = [
+      { id: 'unassigned', name: '未振り分け', color: null },
+      ...currentStages,
+    ].filter((col) => col.id !== 'unassigned' || membersOfStage('unassigned').length > 0);
+
+    const columnsHtml = columns.map((col) => {
+      const members = membersOfStage(col.id);
+      const rows = members.map((g) => {
+        if (g._unknown) {
+          return `
+            <div class="export-col-row">
+              <div class="export-col-row-main">
+                <span class="export-name">${escapeHtml(g.name)}</span>
+                <span class="export-unknown-tag">未登録</span>
+              </div>
+            </div>
+          `;
+        }
+        const photo = chipInfo(g.photo);
+        const video = chipInfo(g.video);
+        return `
+          <div class="export-col-row">
+            <div class="export-col-row-main">
+              <span class="export-name">${escapeHtml(g.name)}</span>
+              ${renderBadge(photo)}
+              ${renderBadge(video)}
+            </div>
+            ${g.note ? `<div class="export-note">${escapeHtml(g.note)}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+      const dot = col.color ? `<span class="export-col-dot" style="background:${col.color}"></span>` : '';
+      return `
+        <div class="export-column" style="${col.color ? `border-top-color:${col.color};` : ''}">
+          <div class="export-column-head">${dot}<span>${escapeHtml(col.name)} (${members.length})</span></div>
+          <div class="export-column-body">${rows}</div>
+        </div>
+      `;
+    }).join('');
+
+    return {
+      html: `
+        ${eventHtml}
+        <div class="export-title">照合結果(ステージ別)</div>
+        <div class="export-columns-wrap">${columnsHtml}</div>
+        <div class="export-credit">撮可チェック — satsuka-check</div>
+      `,
+      width: Math.max(420, columns.length * 230 + 40),
+    };
+  }
+
+
+
   async function exportAsImage() {
     if (typeof html2canvas === 'undefined') {
       alert('画像化ライブラリの読み込みに失敗しました。オンラインの状態で再度お試しください。');
@@ -2222,7 +2344,13 @@
 
     const wrap = document.createElement('div');
     wrap.className = 'export-wrap';
-    wrap.innerHTML = buildExportHtml();
+    if (stageModeActive && stageViewMode === 'columns' && currentStages.length > 0) {
+      const built = buildExportHtmlColumns();
+      wrap.innerHTML = built.html;
+      wrap.style.width = `${built.width}px`;
+    } else {
+      wrap.innerHTML = buildExportHtml();
+    }
     document.body.appendChild(wrap);
 
     try {
