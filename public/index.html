@@ -297,7 +297,6 @@
   .history-clear-row button:hover { color: var(--ng); }
 
   /* ---- ステージ分け ---- */
-  .tab.stage-btn { margin-left: 6px; }
   .stage-panel {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -660,6 +659,29 @@
     font-size: 22px;
     margin: 0;
     font-weight: 600;
+  }
+  .result-head-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .stage-toggle-btn {
+    background: none;
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .stage-toggle-btn:hover { border-color: var(--flash); color: var(--flash); }
+  .stage-toggle-btn.active {
+    background: rgba(91,107,140,0.10);
+    border-color: var(--flash);
+    color: var(--flash);
   }
   .result-head .page-title {
     color: var(--ink-dim);
@@ -1274,7 +1296,6 @@
       <button type="button" class="tab active" id="tabUrl">チケットURLで照合</button>
       <button type="button" class="tab" id="tabList">グループ名リストで照合</button>
       <button type="button" class="tab history-btn" id="historyToggle">履歴</button>
-      <button type="button" class="tab stage-btn" id="stageToggle">ステージ分け</button>
     </div>
 
     <div class="history-panel" id="historyPanel" style="display:none;"></div>
@@ -1340,7 +1361,6 @@
   const tabList = document.getElementById('tabList');
   const historyToggle = document.getElementById('historyToggle');
   const historyPanel = document.getElementById('historyPanel');
-  const stageToggle = document.getElementById('stageToggle');
   const statusEl = document.getElementById('status');
   const resultsEl = document.getElementById('results');
   const dbCountEl = document.getElementById('dbCount');
@@ -1802,12 +1822,6 @@
       cardEl.addEventListener('dragend', () => cardEl.classList.remove('dragging'));
     });
   }
-
-  stageToggle.addEventListener('click', () => {
-    stageModeActive = !stageModeActive;
-    stageToggle.classList.toggle('active', stageModeActive);
-    draw();
-  });
 
   // ---- URLごとの編集内容の保存(DBには反映しない、同じチケットURLを再照合した時だけ復元) ----
   const EDITS_STORAGE_KEY = 'satsuka_check_url_edits_v1';
@@ -2466,7 +2480,10 @@
 
     const head = `
       <div class="result-head">
-        <h2>照合結果 (${matchedCount})${unknownInlineCount > 0 ? ` <span class="page-title">+ 未登録${unknownInlineCount}件</span>` : ''}</h2>
+        <div class="result-head-title">
+          <h2>照合結果 (${matchedCount})${unknownInlineCount > 0 ? ` <span class="page-title">+ 未登録${unknownInlineCount}件</span>` : ''}</h2>
+          <button type="button" class="stage-toggle-btn${stageModeActive ? ' active' : ''}" id="stageToggle">複数ステージ</button>
+        </div>
         <div class="result-head-controls">
           <button type="button" class="export-btn" id="exportImageBtn">画像で保存</button>
           ${showClearAll ? '<span class="clear-all-link" id="clearAllEdits">このURLの編集を全消去</span>' : ''}
@@ -2496,6 +2513,14 @@
     const exportBtn = document.getElementById('exportImageBtn');
     if (exportBtn) {
       exportBtn.addEventListener('click', exportAsImage);
+    }
+
+    const stageToggleEl = document.getElementById('stageToggle');
+    if (stageToggleEl) {
+      stageToggleEl.addEventListener('click', () => {
+        stageModeActive = !stageModeActive;
+        draw();
+      });
     }
 
     const toggleEl = document.getElementById('editModeToggle');
