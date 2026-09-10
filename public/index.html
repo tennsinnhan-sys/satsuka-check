@@ -337,6 +337,21 @@
     flex-shrink: 0;
     display: inline-block;
   }
+  .stage-color-input {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    border: 1px solid rgba(0,0,0,0.15);
+    padding: 0;
+    background: none;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+  .stage-color-input::-webkit-color-swatch-wrapper { padding: 0; border-radius: 50%; }
+  .stage-color-input::-webkit-color-swatch { border: none; border-radius: 50%; }
+  .stage-color-input::-moz-color-swatch { border: none; border-radius: 50%; }
 
   /* タブ表示 */
   .stage-tabs {
@@ -358,11 +373,13 @@
     white-space: nowrap;
     cursor: pointer;
     border: 2px solid transparent;
+    border-bottom: 3px solid transparent;
     flex-shrink: 0;
   }
   .stage-tab.active {
     color: var(--ink);
     font-weight: 700;
+    border-bottom-color: var(--active-stage-color, var(--flash));
   }
   .stage-tab.drag-over {
     border-color: var(--flash);
@@ -386,7 +403,8 @@
     align-items: center;
     gap: 8px;
     padding: 9px 10px;
-    border-radius: 10px;
+    border-radius: 8px;
+    border-left: 4px solid transparent;
     background: var(--stage-deep);
     font-family: 'JetBrains Mono', monospace;
     font-size: 12.5px;
@@ -409,8 +427,9 @@
   }
   .stage-column {
     flex: 0 0 180px;
-    border: 2px solid var(--line);
-    border-radius: 14px;
+    border: 1px solid var(--line);
+    border-top: 4px solid var(--line);
+    border-radius: 12px;
     background: var(--stage-deep);
     overflow: hidden;
   }
@@ -1166,7 +1185,6 @@
     </div>
 
     <div class="history-panel" id="historyPanel" style="display:none;"></div>
-    <div class="stage-panel" id="stagePanel" style="display:none;"></div>
 
     <form id="lookupForm" autocomplete="off">
       <div class="stub">
@@ -1230,7 +1248,6 @@
   const historyToggle = document.getElementById('historyToggle');
   const historyPanel = document.getElementById('historyPanel');
   const stageToggle = document.getElementById('stageToggle');
-  const stagePanel = document.getElementById('stagePanel');
   const statusEl = document.getElementById('status');
   const resultsEl = document.getElementById('results');
   const dbCountEl = document.getElementById('dbCount');
@@ -1456,7 +1473,7 @@
     const color = STAGE_COLORS[currentStages.length % STAGE_COLORS.length];
     currentStages.push({ id: `stage_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, name: trimmed, color });
     activeStageTabId = currentStages[currentStages.length - 1].id;
-    renderStagePanel();
+    draw();
     saveCurrentStageStateToHistory();
   }
 
@@ -1466,7 +1483,7 @@
       if (currentStageAssignment[name] === stageId) delete currentStageAssignment[name];
     }
     if (activeStageTabId === stageId) activeStageTabId = 'unassigned';
-    renderStagePanel();
+    draw();
     saveCurrentStageStateToHistory();
   }
 
@@ -1476,8 +1493,7 @@
     } else {
       currentStageAssignment[name] = stageId;
     }
-    renderStagePanel();
-    draw(); // メインのカード一覧側の色ドットも更新
+    draw();
     saveCurrentStageStateToHistory();
   }
 
@@ -1505,11 +1521,27 @@
     `;
   }
 
-  function renderStageCardRow(g) {
+  function renderStageCardRow(g, color) {
+    const borderStyle = color ? `style="border-left-color:${color};"` : '';
+    if (g._unknown) {
+      return `
+        <div class="stage-card" ${borderStyle} draggable="true" data-stage-drag-name="${escapeAttr(g.name)}">
+          <span>⠿</span>
+          <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(g.name)}</span>
+          <span class="unknown-tag">未登録</span>
+        </div>
+      `;
+    }
+    const photo = chipInfo(g.photo);
+    const video = chipInfo(g.video);
     return `
-      <div class="stage-card" draggable="true" data-stage-drag-name="${escapeAttr(g.name)}">
+      <div class="stage-card" ${borderStyle} draggable="true" data-stage-drag-name="${escapeAttr(g.name)}">
         <span>⠿</span>
-        <span>${escapeHtml(g.name)}</span>
+        <span style="flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(g.name)}</span>
+        <div class="badge-group">
+          ${renderBadge(photo)}
+          ${renderBadge(video)}
+        </div>
       </div>
     `;
   }
@@ -1519,8 +1551,8 @@
     const tabsHtml = [
       `<div class="stage-tab ${activeStageTabId === 'unassigned' ? 'active' : ''}" data-tab-id="unassigned">未振り分け (${unassignedCount})</div>`,
       ...currentStages.map((s) => `
-        <div class="stage-tab ${activeStageTabId === s.id ? 'active' : ''}" data-tab-id="${s.id}">
-          <span class="stage-dot" style="background:${s.color}"></span>
+        <div class="stage-tab ${activeStageTabId === s.id ? 'active' : ''}" data-tab-id="${s.id}" ${activeStageTabId === s.id ? `style="--active-stage-color:${s.color};"` : ''}>
+          <input type="color" class="stage-color-input" data-color-stage="${s.id}" value="${s.color}" title="色を変更" />
           ${escapeHtml(s.name)} (${membersOfStage(s.id).length})
           <button type="button" class="stage-del" data-del-stage="${s.id}" title="このステージを削除">✕</button>
         </div>
@@ -1529,7 +1561,7 @@
 
     const activeMembers = membersOfStage(activeStageTabId);
     const listHtml = activeMembers.length
-      ? activeMembers.map(renderStageCardRow).join('')
+      ? `<div class="cards">${activeMembers.map((g) => renderCard(g, currentGroups.indexOf(g), currentGroups.length)).join('')}</div>`
       : `<div class="stage-list-empty">ここにカードをドラッグして割り当ててください</div>`;
 
     return `
@@ -1546,13 +1578,15 @@
     const columnsHtml = columns.map((col) => {
       const members = membersOfStage(col.id);
       const body = members.length
-        ? members.map(renderStageCardRow).join('')
+        ? members.map((g) => renderStageCardRow(g, col.color)).join('')
         : `<div class="stage-list-empty">ドラッグして追加</div>`;
       const delBtn = col.id === 'unassigned' ? '' : `<button type="button" class="stage-del" data-del-stage="${col.id}" title="削除">✕</button>`;
-      const dot = col.color ? `<span class="stage-dot" style="background:${col.color}"></span>` : '';
+      const colorControl = col.color
+        ? `<input type="color" class="stage-color-input" data-color-stage="${col.id}" value="${col.color}" title="色を変更" />`
+        : '';
       return `
-        <div class="stage-column" data-drop-stage="${col.id}">
-          <div class="stage-column-head">${dot}<span style="flex:1;">${escapeHtml(col.name)} (${members.length})</span>${delBtn}</div>
+        <div class="stage-column" data-drop-stage="${col.id}" ${col.color ? `style="border-top-color:${col.color};"` : ''}>
+          <div class="stage-column-head">${colorControl}<span style="flex:1;">${escapeHtml(col.name)} (${members.length})</span>${delBtn}</div>
           <div class="stage-column-body">${body}</div>
         </div>
       `;
@@ -1561,41 +1595,55 @@
     return `<div class="stage-columns">${columnsHtml}</div>`;
   }
 
-  function renderStagePanel() {
-    if (!stageModeActive) {
-      stagePanel.style.display = 'none';
-      stagePanel.innerHTML = '';
-      return;
-    }
-    stagePanel.style.display = '';
-    stagePanel.innerHTML = renderStageToolbar() + (stageViewMode === 'tabs' ? renderStageTabsView() : renderStageColumnsView());
-    attachStagePanelEvents();
+  // 照合結果(resultsEl)の中に、ステージ分けの表示(トグル・タブまたはカラム)を描画する。
+  // 以前は結果一覧と別の場所(フォームのすぐ下)に分かれていたが、
+  // 「照合結果そのものをステージ毎の表示にしたい」という要望に合わせて統合した。
+  function renderStageResultsSection() {
+    return `
+      <div class="stage-panel">
+        ${renderStageToolbar()}
+        ${stageViewMode === 'tabs' ? renderStageTabsView() : renderStageColumnsView()}
+      </div>
+    `;
   }
 
-  function attachStagePanelEvents() {
-    stagePanel.querySelectorAll('.stage-view-toggle button').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        stageViewMode = btn.dataset.view;
-        try { localStorage.setItem(STAGE_VIEW_KEY, stageViewMode); } catch (e) {}
-        renderStagePanel();
+  function attachStageResultsEvents() {
+    resultsEl.querySelectorAll('.stage-color-input[data-color-stage]').forEach((input) => {
+      input.addEventListener('click', (e) => e.stopPropagation());
+      input.addEventListener('input', (e) => e.stopPropagation());
+      input.addEventListener('change', (e) => {
+        e.stopPropagation();
+        const stage = stageById(input.dataset.colorStage);
+        if (!stage) return;
+        stage.color = input.value;
+        draw();
+        saveCurrentStageStateToHistory();
       });
     });
 
-    const addForm = stagePanel.querySelector('#stageAddForm');
+    resultsEl.querySelectorAll('.stage-view-toggle button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        stageViewMode = btn.dataset.view;
+        try { localStorage.setItem(STAGE_VIEW_KEY, stageViewMode); } catch (e) {}
+        draw();
+      });
+    });
+
+    const addForm = resultsEl.querySelector('#stageAddForm');
     if (addForm) {
       addForm.addEventListener('submit', (e) => {
         e.preventDefault();
-        const input = stagePanel.querySelector('#stageAddInput');
+        const input = resultsEl.querySelector('#stageAddInput');
         addStage(input.value);
         input.value = '';
       });
     }
 
-    stagePanel.querySelectorAll('.stage-tab[data-tab-id]').forEach((tabEl) => {
+    resultsEl.querySelectorAll('.stage-tab[data-tab-id]').forEach((tabEl) => {
       tabEl.addEventListener('click', (e) => {
         if (e.target.closest('.stage-del')) return;
         activeStageTabId = tabEl.dataset.tabId;
-        renderStagePanel();
+        draw();
       });
       // タブへのドラッグ&ドロップで、そのステージへ移動
       tabEl.addEventListener('dragover', (e) => {
@@ -1611,14 +1659,14 @@
       });
     });
 
-    stagePanel.querySelectorAll('.stage-del[data-del-stage]').forEach((btn) => {
+    resultsEl.querySelectorAll('.stage-del[data-del-stage]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         deleteStage(btn.dataset.delStage);
       });
     });
 
-    stagePanel.querySelectorAll('[data-drop-stage]').forEach((dropEl) => {
+    resultsEl.querySelectorAll('[data-drop-stage]').forEach((dropEl) => {
       dropEl.addEventListener('dragover', (e) => {
         e.preventDefault();
         dropEl.classList.add('drag-over');
@@ -1628,6 +1676,11 @@
         e.preventDefault();
         dropEl.classList.remove('drag-over');
         if (!stageDragName) return;
+        if (e.target.closest('.card')) {
+          // タブ表示の通常カード同士のドロップは、カード自身のonDrop(並べ替え)に任せる
+          stageDragName = null;
+          return;
+        }
         const targetStageId = dropEl.dataset.dropStage;
         const overCard = e.target.closest('.stage-card');
         if (overCard && overCard.dataset.stageDragName !== stageDragName) {
@@ -1638,7 +1691,7 @@
       });
     });
 
-    stagePanel.querySelectorAll('.stage-card[data-stage-drag-name]').forEach((cardEl) => {
+    resultsEl.querySelectorAll('.stage-card[data-stage-drag-name]').forEach((cardEl) => {
       cardEl.addEventListener('dragstart', (e) => {
         stageDragName = cardEl.dataset.stageDragName;
         cardEl.classList.add('dragging');
@@ -1652,7 +1705,7 @@
   stageToggle.addEventListener('click', () => {
     stageModeActive = !stageModeActive;
     stageToggle.classList.toggle('active', stageModeActive);
-    renderStagePanel();
+    draw();
   });
 
   // ---- URLごとの編集内容の保存(DBには反映しない、同じチケットURLを再照合した時だけ復元) ----
@@ -2260,16 +2313,19 @@
       ${currentGroups.length > 1 ? `<div class="reorder-hint">${editMode ? '編集モード: 行をタップしてこの場限定のレギュを入力' : '⠿ をドラッグしてタイムテーブル順に並べ替え、行をタップで詳細表示'}</div>` : ''}
     `;
 
-    const colHeaders = matchedCount > 0
+    const colHeaders = matchedCount > 0 && !stageModeActive
       ? `<div class="col-headers"><span class="spacer"></span><span class="date-label">確認日</span><span class="col-label">静止画</span><span class="col-label">動画</span><span class="chevron-spacer"></span></div>`
       : '';
 
-    const cards = currentGroups.length
-      ? `<div class="cards">${currentGroups.map((g, i) => renderCard(g, i, currentGroups.length)).join('')}</div>`
-      : `<div class="empty">一致するグループが見つかりませんでした。</div>`;
+    const cardsOrStageSection = stageModeActive
+      ? renderStageResultsSection()
+      : (currentGroups.length
+          ? `<div class="cards">${currentGroups.map((g, i) => renderCard(g, i, currentGroups.length)).join('')}</div>`
+          : `<div class="empty">一致するグループが見つかりませんでした。</div>`);
 
-    resultsEl.innerHTML = renderEventCard(currentEventInfo) + head + colHeaders + cards + renderNotFound(currentNotFound) + renderUnknownOnPage(currentUnknownOnPage);
+    resultsEl.innerHTML = renderEventCard(currentEventInfo) + head + colHeaders + cardsOrStageSection + renderNotFound(currentNotFound) + renderUnknownOnPage(currentUnknownOnPage);
     attachCardEvents();
+    if (stageModeActive) attachStageResultsEvents();
 
     const exportBtn = document.getElementById('exportImageBtn');
     if (exportBtn) {
@@ -2395,11 +2451,15 @@
     e.currentTarget.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', String(dragSrcIndex));
+    if (stageModeActive && currentGroups[dragSrcIndex]) {
+      stageDragName = currentGroups[dragSrcIndex].name;
+    }
   }
 
   function onDragEnd(e) {
     e.currentTarget.classList.remove('dragging');
     resultsEl.querySelectorAll('.card.drag-over').forEach((c) => c.classList.remove('drag-over'));
+    stageDragName = null;
   }
 
   function onDragOver(e) {
@@ -2473,7 +2533,6 @@
       currentStageAssignment = {};
     }
     activeStageTabId = 'unassigned';
-    renderStagePanel();
   }
 
   // 現在のステージ構成(ステージ一覧+割り当て)を、対応する履歴エントリに保存する
