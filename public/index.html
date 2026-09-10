@@ -76,29 +76,40 @@
   }
   header.top > * { position: relative; }
 
-  .brand {
-    font-family: 'JetBrains Mono', monospace;
-    font-weight: 700;
-    font-size: 15px;
-    letter-spacing: 0.28em;
-    color: var(--flash);
-    text-transform: uppercase;
+  .brand-title {
+    display: flex;
+    align-items: center;
+    gap: 14px;
   }
-
-  h1 {
+  .brand-mark {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: var(--ok);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-family: 'JetBrains Mono', monospace;
     font-weight: 700;
-    font-size: clamp(32px, 5vw, 46px);
-    line-height: 1.05;
-    margin: 6px 0 0;
+    font-size: 20px;
+  }
+  .brand-ja {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: clamp(26px, 4vw, 34px);
+    line-height: 1.1;
+    color: var(--ink);
     letter-spacing: -0.01em;
   }
-
-  .sub {
-    color: var(--ink-dim);
-    font-size: 14px;
-    margin-top: 8px;
-    max-width: 46ch;
+  .brand-en {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.28em;
+    color: var(--flash);
+    margin-top: 3px;
   }
 
   .db-badge {
@@ -1239,9 +1250,13 @@
   <div class="wrap">
     <header class="top">
       <div>
-        <div class="brand">撮可チェック / Satsuka Check</div>
-        <h1>チケットURLを貼るだけ、<br>撮影OK/NGを一覧照合。</h1>
-        <p class="sub">対バン・イベントのチケット詳細ページのURLを入力すると、出演グループの静止画/動画撮影レギュレーションをNotion DBから自動で照合して表示します。</p>
+        <div class="brand-title">
+          <span class="brand-mark">✓</span>
+          <div>
+            <div class="brand-ja">撮可チェック</div>
+            <div class="brand-en">SATSUKA CHECK</div>
+          </div>
+        </div>
       </div>
       <div class="db-badge">
         DB件数: <span id="dbCount">—</span> 件
