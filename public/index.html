@@ -1199,6 +1199,7 @@
         const entry = list.find((it) => it.ts === ts);
         if (!entry) return;
         closeHistoryPanel();
+        pendingHistoryOrder = entry.order && entry.order.length ? entry.order : null;
         if (kind === 'url') {
           urlInput.value = entry.url;
           form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit', { cancelable: true }));
@@ -1550,6 +1551,8 @@
   let editingIndex = null;
   let currentEditUrl = null;
   let currentUnknownOnPage = [];
+  let currentListQuery = null; // { text, eventName } — リスト照合の並び順保存に使う
+  let pendingHistoryOrder = null; // 履歴から呼び出した時に適用する並び順(名前の配列)
 
   function chipInfo(value) {
     if (value === '可') return { cls: 'ok', icon: '○', label: '可' };
@@ -1997,6 +2000,44 @@
     currentGroups.splice(targetIndex, 0, moved);
     dragSrcIndex = null;
     draw();
+    saveCurrentOrderToHistory();
+  }
+
+  // 保存済みの並び順(名前の配列)を、現在の照合結果に適用する。
+  // 並び順に無い名前(新しく増えた/減った出演者)は末尾に元の順番のまま追加する。
+  function applySavedOrder(groups, order) {
+    if (!order || !order.length) return groups;
+    const byName = new Map(groups.map((g) => [g.name, g]));
+    const used = new Set();
+    const ordered = [];
+    for (const name of order) {
+      if (byName.has(name)) {
+        ordered.push(byName.get(name));
+        used.add(name);
+      }
+    }
+    for (const g of groups) {
+      if (!used.has(g.name)) ordered.push(g);
+    }
+    return ordered;
+  }
+
+  // 現在表示中の並び順を、対応する履歴エントリに保存する(タイムテーブル順の入れ替えを記憶)
+  async function saveCurrentOrderToHistory() {
+    const order = currentGroups.map((g) => g.name);
+    if (currentTabMode === 'url' && currentEditUrl) {
+      await addHistoryEntry('url', {
+        url: currentEditUrl,
+        title: currentEventInfo ? currentEventInfo.title : '',
+        order,
+      });
+    } else if (currentTabMode === 'list' && currentListQuery) {
+      await addHistoryEntry('list', {
+        text: currentListQuery.text,
+        eventName: currentListQuery.eventName,
+        order,
+      });
+    }
   }
 
   // ---- 編集モード: この場限定の一時上書き(DBには反映しない、画面表示のみ) ----
@@ -2156,7 +2197,9 @@
       ];
       merged.sort((a, b) => (a.pagePos ?? 0) - (b.pagePos ?? 0));
 
-      currentGroups = merged;
+      const orderToKeep = pendingHistoryOrder;
+      currentGroups = orderToKeep ? applySavedOrder(merged, orderToKeep) : merged;
+      pendingHistoryOrder = null;
       currentNotFound = [];
       currentEventInfo = data.eventInfo && data.eventInfo.title
         ? { ...data.eventInfo, sourceUrl: url }
@@ -2235,10 +2278,13 @@
       ];
       mergedList.sort((a, b) => (a.pagePos ?? 0) - (b.pagePos ?? 0));
 
-      currentGroups = mergedList;
+      const orderToKeep = pendingHistoryOrder;
+      currentGroups = orderToKeep ? applySavedOrder(mergedList, orderToKeep) : mergedList;
+      pendingHistoryOrder = null;
       currentNotFound = [];
       currentEventInfo = eventName ? { title: eventName } : null;
       currentEditUrl = null;
+      currentListQuery = { text, eventName };
       currentUnknownOnPage = notFoundEntries.map((n) => n.name);
       addHistoryEntry('list', { text, eventName });
       draw();
@@ -2269,10 +2315,13 @@
       ];
       mergedListOffline.sort((a, b) => (a.pagePos ?? 0) - (b.pagePos ?? 0));
 
-      currentGroups = mergedListOffline;
+      const orderToKeepOffline = pendingHistoryOrder;
+      currentGroups = orderToKeepOffline ? applySavedOrder(mergedListOffline, orderToKeepOffline) : mergedListOffline;
+      pendingHistoryOrder = null;
       currentNotFound = [];
       currentEventInfo = eventName ? { title: eventName } : null;
       currentEditUrl = null;
+      currentListQuery = { text, eventName };
       currentUnknownOnPage = notFound.map((n) => n.name);
       addHistoryEntry('list', { text, eventName });
       draw();

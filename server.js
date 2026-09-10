@@ -438,8 +438,15 @@ post("/api/history/add", async (req, res, env) => {
     }
     const list = await loadHistoryKV(env, kind);
     const dedupeKey = kind === "url" ? entry.url : entry.text;
+    const existing = list.find((it) => (kind === "url" ? it.url : it.text) === dedupeKey);
     const filtered = list.filter((it) => (kind === "url" ? it.url : it.text) !== dedupeKey);
-    filtered.unshift({ ...entry, ts: Date.now() });
+    const mergedEntry = { ...entry };
+    // 並び順(order)が明示的に送られなかった場合は、既存の保存済み並び順を引き継ぐ
+    // (タイムテーブル順の入れ替えが、通常の再検索のたびに消えてしまわないようにするため)
+    if (mergedEntry.order === undefined && existing && existing.order) {
+      mergedEntry.order = existing.order;
+    }
+    filtered.unshift({ ...mergedEntry, ts: Date.now() });
     const capped = filtered.slice(0, HISTORY_MAX);
     await saveHistoryKV(env, kind, capped);
     res.json({ ok: true, list: capped });
