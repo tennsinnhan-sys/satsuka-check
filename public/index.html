@@ -270,6 +270,189 @@
   }
   .history-clear-row button:hover { color: var(--ng); }
 
+  /* ---- ステージ分け ---- */
+  .tab.stage-btn { margin-left: 6px; }
+  .stage-panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px;
+    margin-bottom: 14px;
+  }
+  .stage-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .stage-view-toggle {
+    display: flex;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .stage-view-toggle button {
+    background: transparent;
+    border: none;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .stage-view-toggle button.active {
+    background: rgba(99,102,241,0.12);
+    color: var(--flash);
+  }
+  .stage-add-form {
+    display: flex;
+    gap: 6px;
+    flex: 1 1 auto;
+    min-width: 160px;
+  }
+  .stage-add-form input {
+    flex: 1;
+    background: var(--stage-deep);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--ink);
+  }
+  .stage-add-form button {
+    background: rgba(99,102,241,0.12);
+    color: var(--flash);
+    border: none;
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .stage-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: inline-block;
+  }
+
+  /* タブ表示 */
+  .stage-tabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    margin-bottom: 8px;
+  }
+  .stage-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border-radius: 10px;
+    background: var(--stage-deep);
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+    cursor: pointer;
+    border: 2px solid transparent;
+    flex-shrink: 0;
+  }
+  .stage-tab.active {
+    color: var(--ink);
+    font-weight: 700;
+  }
+  .stage-tab.drag-over {
+    border-color: var(--flash);
+  }
+  .stage-tab .stage-del {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0 2px;
+  }
+  .stage-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 40px;
+  }
+  .stage-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border-radius: 10px;
+    background: var(--stage-deep);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    cursor: grab;
+  }
+  .stage-card.dragging { opacity: 0.4; }
+  .stage-list-empty {
+    padding: 16px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  /* 横並びカラム表示 */
+  .stage-columns {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+  .stage-column {
+    flex: 0 0 180px;
+    border: 2px solid var(--line);
+    border-radius: 14px;
+    background: var(--stage-deep);
+    overflow: hidden;
+  }
+  .stage-column.drag-over { border-color: var(--flash); }
+  .stage-column-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 10px;
+    font-size: 11.5px;
+    font-weight: 700;
+    border-bottom: 1px solid var(--line);
+  }
+  .stage-column-body {
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 40px;
+  }
+  .stage-column-add {
+    flex: 0 0 80px;
+    border: 1.5px dashed var(--line);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--flash);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  /* 通常のカードに表示するステージ色バッジ */
+  .card-stage-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-right: 2px;
+  }
+
+
   .stub textarea {
     flex: 1 1 100%;
     background: var(--stage-deep);
@@ -979,9 +1162,11 @@
       <button type="button" class="tab active" id="tabUrl">チケットURLで照合</button>
       <button type="button" class="tab" id="tabList">グループ名リストで照合</button>
       <button type="button" class="tab history-btn" id="historyToggle">履歴</button>
+      <button type="button" class="tab stage-btn" id="stageToggle">ステージ分け</button>
     </div>
 
     <div class="history-panel" id="historyPanel" style="display:none;"></div>
+    <div class="stage-panel" id="stagePanel" style="display:none;"></div>
 
     <form id="lookupForm" autocomplete="off">
       <div class="stub">
@@ -1044,6 +1229,8 @@
   const tabList = document.getElementById('tabList');
   const historyToggle = document.getElementById('historyToggle');
   const historyPanel = document.getElementById('historyPanel');
+  const stageToggle = document.getElementById('stageToggle');
+  const stagePanel = document.getElementById('stagePanel');
   const statusEl = document.getElementById('status');
   const resultsEl = document.getElementById('results');
   const dbCountEl = document.getElementById('dbCount');
@@ -1200,6 +1387,9 @@
         if (!entry) return;
         closeHistoryPanel();
         pendingHistoryOrder = entry.order && entry.order.length ? entry.order : null;
+        pendingStageState = entry.stages && entry.stages.length
+          ? { stages: entry.stages, stageAssignment: entry.stageAssignment || {} }
+          : null;
         if (kind === 'url') {
           urlInput.value = entry.url;
           form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit', { cancelable: true }));
@@ -1248,6 +1438,221 @@
     if (historyPanel.style.display === 'none') return;
     if (historyPanel.contains(e.target) || historyToggle.contains(e.target)) return;
     closeHistoryPanel();
+  });
+
+  // ---- ステージ分け ----
+  function stageById(id) {
+    return currentStages.find((s) => s.id === id) || null;
+  }
+
+  function membersOfStage(stageId) {
+    // 現在の照合結果(currentGroups)の並び順を保ったまま、そのステージに割り当てられたものだけ抽出
+    return currentGroups.filter((g) => (currentStageAssignment[g.name] || 'unassigned') === stageId);
+  }
+
+  function addStage(name) {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return;
+    const color = STAGE_COLORS[currentStages.length % STAGE_COLORS.length];
+    currentStages.push({ id: `stage_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, name: trimmed, color });
+    activeStageTabId = currentStages[currentStages.length - 1].id;
+    renderStagePanel();
+    saveCurrentStageStateToHistory();
+  }
+
+  function deleteStage(stageId) {
+    currentStages = currentStages.filter((s) => s.id !== stageId);
+    for (const name of Object.keys(currentStageAssignment)) {
+      if (currentStageAssignment[name] === stageId) delete currentStageAssignment[name];
+    }
+    if (activeStageTabId === stageId) activeStageTabId = 'unassigned';
+    renderStagePanel();
+    saveCurrentStageStateToHistory();
+  }
+
+  function assignToStage(name, stageId) {
+    if (stageId === 'unassigned') {
+      delete currentStageAssignment[name];
+    } else {
+      currentStageAssignment[name] = stageId;
+    }
+    renderStagePanel();
+    draw(); // メインのカード一覧側の色ドットも更新
+    saveCurrentStageStateToHistory();
+  }
+
+  function reorderWithinCurrentGroups(draggedName, targetName) {
+    if (draggedName === targetName) return;
+    const srcIdx = currentGroups.findIndex((g) => g.name === draggedName);
+    if (srcIdx === -1) return;
+    const [moved] = currentGroups.splice(srcIdx, 1);
+    const tgtIdx = currentGroups.findIndex((g) => g.name === targetName);
+    currentGroups.splice(tgtIdx === -1 ? currentGroups.length : tgtIdx, 0, moved);
+  }
+
+  function renderStageToolbar() {
+    return `
+      <div class="stage-toolbar">
+        <div class="stage-view-toggle">
+          <button type="button" data-view="tabs" class="${stageViewMode === 'tabs' ? 'active' : ''}">タブ</button>
+          <button type="button" data-view="columns" class="${stageViewMode === 'columns' ? 'active' : ''}">横並び</button>
+        </div>
+        <form class="stage-add-form" id="stageAddForm">
+          <input type="text" id="stageAddInput" placeholder="ステージ名を入力(例: Aステージ)" maxlength="30" />
+          <button type="submit">＋ 追加</button>
+        </form>
+      </div>
+    `;
+  }
+
+  function renderStageCardRow(g) {
+    return `
+      <div class="stage-card" draggable="true" data-stage-drag-name="${escapeAttr(g.name)}">
+        <span>⠿</span>
+        <span>${escapeHtml(g.name)}</span>
+      </div>
+    `;
+  }
+
+  function renderStageTabsView() {
+    const unassignedCount = membersOfStage('unassigned').length;
+    const tabsHtml = [
+      `<div class="stage-tab ${activeStageTabId === 'unassigned' ? 'active' : ''}" data-tab-id="unassigned">未振り分け (${unassignedCount})</div>`,
+      ...currentStages.map((s) => `
+        <div class="stage-tab ${activeStageTabId === s.id ? 'active' : ''}" data-tab-id="${s.id}">
+          <span class="stage-dot" style="background:${s.color}"></span>
+          ${escapeHtml(s.name)} (${membersOfStage(s.id).length})
+          <button type="button" class="stage-del" data-del-stage="${s.id}" title="このステージを削除">✕</button>
+        </div>
+      `),
+    ].join('');
+
+    const activeMembers = membersOfStage(activeStageTabId);
+    const listHtml = activeMembers.length
+      ? activeMembers.map(renderStageCardRow).join('')
+      : `<div class="stage-list-empty">ここにカードをドラッグして割り当ててください</div>`;
+
+    return `
+      <div class="stage-tabs">${tabsHtml}</div>
+      <div class="stage-list" data-drop-stage="${activeStageTabId}">${listHtml}</div>
+    `;
+  }
+
+  function renderStageColumnsView() {
+    const columns = [
+      { id: 'unassigned', name: '未振り分け', color: null },
+      ...currentStages,
+    ];
+    const columnsHtml = columns.map((col) => {
+      const members = membersOfStage(col.id);
+      const body = members.length
+        ? members.map(renderStageCardRow).join('')
+        : `<div class="stage-list-empty">ドラッグして追加</div>`;
+      const delBtn = col.id === 'unassigned' ? '' : `<button type="button" class="stage-del" data-del-stage="${col.id}" title="削除">✕</button>`;
+      const dot = col.color ? `<span class="stage-dot" style="background:${col.color}"></span>` : '';
+      return `
+        <div class="stage-column" data-drop-stage="${col.id}">
+          <div class="stage-column-head">${dot}<span style="flex:1;">${escapeHtml(col.name)} (${members.length})</span>${delBtn}</div>
+          <div class="stage-column-body">${body}</div>
+        </div>
+      `;
+    }).join('');
+
+    return `<div class="stage-columns">${columnsHtml}</div>`;
+  }
+
+  function renderStagePanel() {
+    if (!stageModeActive) {
+      stagePanel.style.display = 'none';
+      stagePanel.innerHTML = '';
+      return;
+    }
+    stagePanel.style.display = '';
+    stagePanel.innerHTML = renderStageToolbar() + (stageViewMode === 'tabs' ? renderStageTabsView() : renderStageColumnsView());
+    attachStagePanelEvents();
+  }
+
+  function attachStagePanelEvents() {
+    stagePanel.querySelectorAll('.stage-view-toggle button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        stageViewMode = btn.dataset.view;
+        try { localStorage.setItem(STAGE_VIEW_KEY, stageViewMode); } catch (e) {}
+        renderStagePanel();
+      });
+    });
+
+    const addForm = stagePanel.querySelector('#stageAddForm');
+    if (addForm) {
+      addForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const input = stagePanel.querySelector('#stageAddInput');
+        addStage(input.value);
+        input.value = '';
+      });
+    }
+
+    stagePanel.querySelectorAll('.stage-tab[data-tab-id]').forEach((tabEl) => {
+      tabEl.addEventListener('click', (e) => {
+        if (e.target.closest('.stage-del')) return;
+        activeStageTabId = tabEl.dataset.tabId;
+        renderStagePanel();
+      });
+      // タブへのドラッグ&ドロップで、そのステージへ移動
+      tabEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        tabEl.classList.add('drag-over');
+      });
+      tabEl.addEventListener('dragleave', () => tabEl.classList.remove('drag-over'));
+      tabEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        tabEl.classList.remove('drag-over');
+        if (stageDragName) assignToStage(stageDragName, tabEl.dataset.tabId);
+        stageDragName = null;
+      });
+    });
+
+    stagePanel.querySelectorAll('.stage-del[data-del-stage]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteStage(btn.dataset.delStage);
+      });
+    });
+
+    stagePanel.querySelectorAll('[data-drop-stage]').forEach((dropEl) => {
+      dropEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropEl.classList.add('drag-over');
+      });
+      dropEl.addEventListener('dragleave', () => dropEl.classList.remove('drag-over'));
+      dropEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropEl.classList.remove('drag-over');
+        if (!stageDragName) return;
+        const targetStageId = dropEl.dataset.dropStage;
+        const overCard = e.target.closest('.stage-card');
+        if (overCard && overCard.dataset.stageDragName !== stageDragName) {
+          reorderWithinCurrentGroups(stageDragName, overCard.dataset.stageDragName);
+        }
+        assignToStage(stageDragName, targetStageId);
+        stageDragName = null;
+      });
+    });
+
+    stagePanel.querySelectorAll('.stage-card[data-stage-drag-name]').forEach((cardEl) => {
+      cardEl.addEventListener('dragstart', (e) => {
+        stageDragName = cardEl.dataset.stageDragName;
+        cardEl.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', stageDragName);
+      });
+      cardEl.addEventListener('dragend', () => cardEl.classList.remove('dragging'));
+    });
+  }
+
+  stageToggle.addEventListener('click', () => {
+    stageModeActive = !stageModeActive;
+    stageToggle.classList.toggle('active', stageModeActive);
+    renderStagePanel();
   });
 
   // ---- URLごとの編集内容の保存(DBには反映しない、同じチケットURLを再照合した時だけ復元) ----
@@ -1554,6 +1959,17 @@
   let currentListQuery = null; // { text, eventName } — リスト照合の並び順保存に使う
   let pendingHistoryOrder = null; // 履歴から呼び出した時に適用する並び順(名前の配列)
 
+  // ---- ステージ分け ----
+  const STAGE_COLORS = ['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#8b5cf6', '#ef4444', '#0ea5e9', '#84cc16'];
+  const STAGE_VIEW_KEY = 'satsuka_check_stage_view_mode';
+  let currentStages = []; // [{ id, name, color }]
+  let currentStageAssignment = {}; // { 出演者名: stageId }
+  let stageModeActive = false;
+  let stageViewMode = localStorage.getItem(STAGE_VIEW_KEY) || 'tabs'; // 'tabs' | 'columns'
+  let activeStageTabId = 'unassigned';
+  let pendingStageState = null; // 履歴から呼び出した時に適用する { stages, stageAssignment }
+  let stageDragName = null;
+
   function chipInfo(value) {
     if (value === '可') return { cls: 'ok', icon: '○', label: '可' };
     if (value === '可※') return { cls: 'ok', icon: '○', mark: '!', label: '可※' };
@@ -1625,12 +2041,17 @@
     if (isUrl(g.source2)) links.push({ href: g.source2, label: 'ソース2' });
 
     const hasDetail = showQueryNote || g.note || links.length > 0;
+    const assignedStage = currentStages.length ? stageById(currentStageAssignment[g.name]) : null;
+    const stageDotHtml = assignedStage
+      ? `<span class="card-stage-dot" style="background:${assignedStage.color}" title="${escapeAttr(assignedStage.name)}"></span>`
+      : '';
 
     return `
       <div class="card${g._overridden ? ' overridden' : ''}" draggable="true" data-index="${index}">
         <div class="card-row" data-role="toggle">
           <span class="handle" title="ドラッグで並べ替え">⠿</span>
           <span class="order-num">${index + 1}</span>
+          ${stageDotHtml}
           <span class="card-name">${escapeHtml(g.name)}</span>
           ${g._overridden ? '<span class="edit-mark" title="この場限定で編集済み">✎</span>' : ''}
           ${renderCheckedDate(g.checkedDate)}
@@ -2040,6 +2461,39 @@
     }
   }
 
+  // 新しい検索結果に、履歴から呼び出した場合の保存済みステージ構成を適用する。
+  // 履歴から呼び出したのでなければ、ステージ分けは検索のたびにリセットする。
+  function applyPendingStageState() {
+    if (pendingStageState) {
+      currentStages = pendingStageState.stages || [];
+      currentStageAssignment = pendingStageState.stageAssignment || {};
+      pendingStageState = null;
+    } else {
+      currentStages = [];
+      currentStageAssignment = {};
+    }
+    activeStageTabId = 'unassigned';
+    renderStagePanel();
+  }
+
+  // 現在のステージ構成(ステージ一覧+割り当て)を、対応する履歴エントリに保存する
+  async function saveCurrentStageStateToHistory() {
+    const payload = { stages: currentStages, stageAssignment: currentStageAssignment };
+    if (currentTabMode === 'url' && currentEditUrl) {
+      await addHistoryEntry('url', {
+        url: currentEditUrl,
+        title: currentEventInfo ? currentEventInfo.title : '',
+        ...payload,
+      });
+    } else if (currentTabMode === 'list' && currentListQuery) {
+      await addHistoryEntry('list', {
+        text: currentListQuery.text,
+        eventName: currentListQuery.eventName,
+        ...payload,
+      });
+    }
+  }
+
   // ---- 編集モード: この場限定の一時上書き(DBには反映しない、画面表示のみ) ----
   const STATUS_OPTIONS = [
     { value: '可', cls: 'ok' },
@@ -2200,6 +2654,7 @@
       const orderToKeep = pendingHistoryOrder;
       currentGroups = orderToKeep ? applySavedOrder(merged, orderToKeep) : merged;
       pendingHistoryOrder = null;
+      applyPendingStageState();
       currentNotFound = [];
       currentEventInfo = data.eventInfo && data.eventInfo.title
         ? { ...data.eventInfo, sourceUrl: url }
@@ -2281,6 +2736,7 @@
       const orderToKeep = pendingHistoryOrder;
       currentGroups = orderToKeep ? applySavedOrder(mergedList, orderToKeep) : mergedList;
       pendingHistoryOrder = null;
+      applyPendingStageState();
       currentNotFound = [];
       currentEventInfo = eventName ? { title: eventName } : null;
       currentEditUrl = null;
@@ -2318,6 +2774,7 @@
       const orderToKeepOffline = pendingHistoryOrder;
       currentGroups = orderToKeepOffline ? applySavedOrder(mergedListOffline, orderToKeepOffline) : mergedListOffline;
       pendingHistoryOrder = null;
+      applyPendingStageState();
       currentNotFound = [];
       currentEventInfo = eventName ? { title: eventName } : null;
       currentEditUrl = null;

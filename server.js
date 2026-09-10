@@ -441,10 +441,13 @@ post("/api/history/add", async (req, res, env) => {
     const existing = list.find((it) => (kind === "url" ? it.url : it.text) === dedupeKey);
     const filtered = list.filter((it) => (kind === "url" ? it.url : it.text) !== dedupeKey);
     const mergedEntry = { ...entry };
-    // 並び順(order)が明示的に送られなかった場合は、既存の保存済み並び順を引き継ぐ
-    // (タイムテーブル順の入れ替えが、通常の再検索のたびに消えてしまわないようにするため)
-    if (mergedEntry.order === undefined && existing && existing.order) {
-      mergedEntry.order = existing.order;
+    // order/stages/stageAssignment が明示的に送られなかった場合は、既存の保存済み値を引き継ぐ
+    // (並べ替えやステージ分けが、通常の再検索のたびに消えてしまわないようにするため)
+    const stickyFields = ["order", "stages", "stageAssignment"];
+    for (const field of stickyFields) {
+      if (mergedEntry[field] === undefined && existing && existing[field]) {
+        mergedEntry[field] = existing[field];
+      }
     }
     filtered.unshift({ ...mergedEntry, ts: Date.now() });
     const capped = filtered.slice(0, HISTORY_MAX);
