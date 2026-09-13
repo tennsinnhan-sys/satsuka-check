@@ -45,7 +45,7 @@ const NOTION_VERSION = "2022-06-28";
 
 // ---- 検索履歴(Cloudflare KVにサーバー側保存。全端末で共通の履歴になる) ----
 const HISTORY_MAX = 30;
-const HISTORY_KV_KEYS = { url: "history:url", list: "history:list" };
+const HISTORY_KV_KEYS = { url: "history:url", list: "history:list", timetable: "history:timetable" };
 
 async function loadHistoryKV(env, kind) {
   if (!env.HISTORY_KV) return [];
@@ -416,11 +416,12 @@ post("/api/refresh", async (req, res) => {
 // ---- 検索履歴API(サーバー側=Cloudflare KVに保存。全端末で共通) ----
 get("/api/history", async (req, res, env) => {
   try {
-    const [url, list] = await Promise.all([
+    const [url, list, timetable] = await Promise.all([
       loadHistoryKV(env, "url"),
       loadHistoryKV(env, "list"),
+      loadHistoryKV(env, "timetable"),
     ]);
-    res.json({ ok: true, url, list });
+    res.json({ ok: true, url, list, timetable });
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
@@ -430,16 +431,16 @@ get("/api/history", async (req, res, env) => {
 post("/api/history/add", async (req, res, env) => {
   try {
     const { kind, entry } = req.body || {};
-    if (kind !== "url" && kind !== "list") {
+    if (kind !== "url" && kind !== "list" && kind !== "timetable") {
       return res.status(400).json({ ok: false, error: "kindが不正です" });
     }
     if (!entry || typeof entry !== "object") {
       return res.status(400).json({ ok: false, error: "entryが不正です" });
     }
     const list = await loadHistoryKV(env, kind);
-    const dedupeKey = kind === "url" ? entry.url : entry.text;
-    const existing = list.find((it) => (kind === "url" ? it.url : it.text) === dedupeKey);
-    const filtered = list.filter((it) => (kind === "url" ? it.url : it.text) !== dedupeKey);
+    const dedupeKey = kind === "list" ? entry.text : entry.url;
+    const existing = list.find((it) => (kind === "list" ? it.text : it.url) === dedupeKey);
+    const filtered = list.filter((it) => (kind === "list" ? it.text : it.url) !== dedupeKey);
     const mergedEntry = { ...entry };
     // order/stages/stageAssignment が明示的に送られなかった場合は、既存の保存済み値を引き継ぐ
     // (並べ替えやステージ分けが、通常の再検索のたびに消えてしまわないようにするため)
@@ -462,7 +463,7 @@ post("/api/history/add", async (req, res, env) => {
 post("/api/history/remove", async (req, res, env) => {
   try {
     const { kind, ts } = req.body || {};
-    if (kind !== "url" && kind !== "list") {
+    if (kind !== "url" && kind !== "list" && kind !== "timetable") {
       return res.status(400).json({ ok: false, error: "kindが不正です" });
     }
     const list = (await loadHistoryKV(env, kind)).filter((it) => it.ts !== ts);
@@ -477,7 +478,7 @@ post("/api/history/remove", async (req, res, env) => {
 post("/api/history/clear", async (req, res, env) => {
   try {
     const { kind } = req.body || {};
-    if (kind !== "url" && kind !== "list") {
+    if (kind !== "url" && kind !== "list" && kind !== "timetable") {
       return res.status(400).json({ ok: false, error: "kindが不正です" });
     }
     await saveHistoryKV(env, kind, []);
@@ -878,6 +879,167 @@ post("/api/lookup-list", async (req, res) => {
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
+
+// ---- タイムテーブル取り込み(マージセルのGoogleスプレッドシート) ----
+
+// RFC4180準拠の簡易CSVパーサー(ダブルクォート内のカンマ・改行・エスケープ("")に対応)
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += c;
+      }
+      continue;
+    }
+    if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field);
+      field = "";
+    } else if (c === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else if (c === "\r") {
+      // 無視(直後の\nで改行と判定)
+    } else {
+      field += c;
+    }
+  }
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
+// タイムテーブル形式: 1行目=イベントタイトル(全列結合), 2行目=見出し行
+// (1列目「時間」+ ステージごとに2列(時間帯セル・出演者名セル)がペアで続く)
+// 3行目以降が実データ。同じ出演枠が5分刻みで複数行に渡って続くので、
+// (時間帯, 出演者名)の組が直前行と同じ場合はスキップして重複を除去する。
+function parseTimetableCsv(rows) {
+  const eventTitle = (rows[0] && rows[0][0]) ? String(rows[0][0]).trim() : "";
+  const headerRow = rows[1] || [];
+
+  const stageDefs = [];
+  for (let c = 1; c < headerRow.length; c += 2) {
+    const name = String(headerRow[c] || headerRow[c + 1] || "").trim();
+    if (name) stageDefs.push({ col: c, name });
+  }
+
+  const stages = stageDefs.map((s) => ({ name: s.name, col: s.col, performers: [] }));
+  const lastSeen = new Map(); // col -> 直前の "時間帯__名前"
+
+  for (let r = 2; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row) continue;
+    for (const stage of stages) {
+      const timeRange = String(row[stage.col] || "").trim();
+      const name = String(row[stage.col + 1] || "").trim();
+      if (!name) continue;
+      if (/comming\s*soon/i.test(name)) continue; // 未発表枠は除外
+      const key = `${timeRange}__${name}`;
+      if (lastSeen.get(stage.col) === key) continue; // 同じ出演枠の連続行(5分刻み)をスキップ
+      lastSeen.set(stage.col, key);
+      stage.performers.push(name);
+    }
+  }
+
+  return { eventTitle, stages: stages.map((s) => ({ name: s.name, performers: s.performers })) };
+}
+
+post("/api/timetable-import", async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    if (!url || !url.trim()) {
+      return res.status(400).json({ ok: false, error: "スプレッドシートのURLを入力してください" });
+    }
+
+    const idMatch = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    if (!idMatch) {
+      return res.status(400).json({ ok: false, error: "GoogleスプレッドシートのURLではないようです" });
+    }
+    const sheetId = idMatch[1];
+    const gidMatch = url.match(/[#&?]gid=(\d+)/);
+    const gid = gidMatch ? gidMatch[1] : "0";
+
+    const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+    const csvResp = await fetch(csvUrl);
+    if (!csvResp.ok) {
+      return res.status(400).json({
+        ok: false,
+        error: `スプレッドシートを取得できませんでした(HTTP ${csvResp.status})。「リンクを知っている全員が閲覧可」の共有設定になっているか確認してください。`,
+      });
+    }
+    const csvText = await csvResp.text();
+    const rows = parseCsv(csvText);
+    const { eventTitle, stages } = parseTimetableCsv(rows);
+
+    if (stages.length === 0) {
+      return res.status(400).json({
+        ok: false,
+        error: "ステージ情報を読み取れませんでした。シートの形式(1行目タイトル、2行目にステージ名の見出し)を確認してください。",
+      });
+    }
+
+    // 全ステージの出演者をまとめてDB照合(ステージをまたいだ重複は稀な前提)
+    const groups = await getGroups();
+    const allTokens = [];
+    const tokenStageMap = []; // allTokensと同じ並びで、どのステージ名に属するかを記録
+    for (const stage of stages) {
+      for (const performer of stage.performers) {
+        allTokens.push(performer);
+        tokenStageMap.push(stage.name);
+      }
+    }
+
+    const { matched, notFound } = matchListAgainstGroups(allTokens, groups);
+
+    // 照合結果の各グループ名から、対応するステージ名を逆引きできるようにする
+    const nameToStage = new Map();
+    allTokens.forEach((token, i) => {
+      const norm = normalizeStr(token).toLowerCase();
+      if (!nameToStage.has(norm)) nameToStage.set(norm, tokenStageMap[i]);
+    });
+    const stageAssignment = {};
+    for (const g of matched) {
+      const stageName = nameToStage.get(normalizeStr(g.name).toLowerCase());
+      if (stageName) stageAssignment[g.name] = stageName;
+    }
+    for (const n of notFound) {
+      const stageName = nameToStage.get(normalizeStr(n.name).toLowerCase());
+      if (stageName) stageAssignment[n.name] = stageName;
+    }
+
+    res.json({
+      ok: true,
+      eventTitle,
+      stages: stages.map((s) => s.name),
+      stageAssignment,
+      matchedCount: matched.length,
+      groups: matched,
+      notFound,
+      dbTotal: groups.length,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 
 export default {
   async fetch(request, env, ctx) {

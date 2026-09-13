@@ -524,6 +524,12 @@
     display: flex;
     justify-content: flex-end;
   }
+  .timetable-hint {
+    width: 100%;
+    font-size: 11px;
+    color: var(--ink-dim);
+    line-height: 1.5;
+  }
 
   .not-found {
     margin-top: 26px;
@@ -1295,6 +1301,7 @@
     <div class="tabs">
       <button type="button" class="tab active" id="tabUrl">チケットURLで照合</button>
       <button type="button" class="tab" id="tabList">グループ名リストで照合</button>
+      <button type="button" class="tab" id="tabTimetable">タイムテーブル取り込み</button>
       <button type="button" class="tab history-btn" id="historyToggle">履歴</button>
     </div>
 
@@ -1314,6 +1321,14 @@
         <div class="list-actions">
           <button class="go" id="listGoBtn" type="submit">照合する</button>
         </div>
+      </div>
+    </form>
+
+    <form id="timetableForm" autocomplete="off" style="display:none;">
+      <div class="stub">
+        <input type="url" id="timetableInput" placeholder="https://docs.google.com/spreadsheets/d/xxxxx/edit#gid=xxxxx" required />
+        <div class="timetable-hint">マージセルのタイムテーブル形式(1行目タイトル・2行目にステージ見出し)のGoogleスプレッドシートに対応。「リンクを知っている全員が閲覧可」の共有設定にしてください。</div>
+        <button class="go" id="timetableGoBtn" type="submit">取り込む</button>
       </div>
     </form>
 
@@ -1357,8 +1372,12 @@
   const listInput = document.getElementById('listInput');
   const listEventName = document.getElementById('listEventName');
   const listGoBtn = document.getElementById('listGoBtn');
+  const timetableForm = document.getElementById('timetableForm');
+  const timetableInput = document.getElementById('timetableInput');
+  const timetableGoBtn = document.getElementById('timetableGoBtn');
   const tabUrl = document.getElementById('tabUrl');
   const tabList = document.getElementById('tabList');
+  const tabTimetable = document.getElementById('tabTimetable');
   const historyToggle = document.getElementById('historyToggle');
   const historyPanel = document.getElementById('historyPanel');
   const statusEl = document.getElementById('status');
@@ -1413,7 +1432,7 @@
   }
 
   // ---- 検索履歴(サーバー側=Cloudflare KVに保存。PC/スマホなど全端末で共通) ----
-  let historyCache = { url: [], list: [] };
+  let historyCache = { url: [], list: [], timetable: [] };
   let historyLoadFailed = false;
 
   async function fetchHistoryFromServer() {
@@ -1421,7 +1440,7 @@
       const res = await fetch('/api/history');
       const data = await res.json();
       if (data.ok) {
-        historyCache = { url: data.url || [], list: data.list || [] };
+        historyCache = { url: data.url || [], list: data.list || [], timetable: data.timetable || [] };
         historyLoadFailed = false;
       } else {
         historyLoadFailed = true;
@@ -1492,8 +1511,12 @@
     }
 
     const rows = list.map((it) => {
-      const mainText = kind === 'url' ? (it.title || it.url) : (it.eventName || it.text.split('\n')[0]);
-      const subText = kind === 'url' ? it.url : it.text.replace(/\n/g, ' / ');
+      const mainText = kind === 'url' ? (it.title || it.url)
+        : kind === 'timetable' ? (it.eventTitle || it.url)
+        : (it.eventName || it.text.split('\n')[0]);
+      const subText = kind === 'url' ? it.url
+        : kind === 'timetable' ? `${(it.stages || []).length}ステージ`
+        : it.text.replace(/\n/g, ' / ');
       return `
         <div class="history-item" data-ts="${it.ts}">
           <div class="hi-main">
@@ -1523,6 +1546,9 @@
         if (kind === 'url') {
           urlInput.value = entry.url;
           form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit', { cancelable: true }));
+        } else if (kind === 'timetable') {
+          timetableInput.value = entry.url;
+          timetableForm.requestSubmit ? timetableForm.requestSubmit() : timetableForm.dispatchEvent(new Event('submit', { cancelable: true }));
         } else {
           listEventName.value = entry.eventName || '';
           listInput.value = entry.text;
@@ -2097,11 +2123,12 @@
 
   function switchTab(mode) {
     currentTabMode = mode;
-    const isUrl = mode === 'url';
-    tabUrl.classList.toggle('active', isUrl);
-    tabList.classList.toggle('active', !isUrl);
-    form.style.display = isUrl ? '' : 'none';
-    listForm.style.display = isUrl ? 'none' : '';
+    tabUrl.classList.toggle('active', mode === 'url');
+    tabList.classList.toggle('active', mode === 'list');
+    tabTimetable.classList.toggle('active', mode === 'timetable');
+    form.style.display = mode === 'url' ? '' : 'none';
+    listForm.style.display = mode === 'list' ? '' : 'none';
+    timetableForm.style.display = mode === 'timetable' ? '' : 'none';
     statusEl.className = '';
     statusEl.textContent = '';
     resultsEl.innerHTML = '';
@@ -2114,6 +2141,7 @@
 
   tabUrl.addEventListener('click', () => switchTab('url'));
   tabList.addEventListener('click', () => switchTab('list'));
+  tabTimetable.addEventListener('click', () => switchTab('timetable'));
 
   // ---- 検索結果の状態(並べ替え可能) ----
   let currentGroups = [];
@@ -2125,6 +2153,7 @@
   let currentEditUrl = null;
   let currentUnknownOnPage = [];
   let currentListQuery = null; // { text, eventName } — リスト照合の並び順保存に使う
+  let currentTimetableUrl = null; // タイムテーブル取り込みの識別用URL
   let pendingHistoryOrder = null; // 履歴から呼び出した時に適用する並び順(名前の配列)
 
   // ---- ステージ分け ----
@@ -2709,6 +2738,12 @@
         eventName: currentListQuery.eventName,
         order,
       });
+    } else if (currentTabMode === 'timetable' && currentTimetableUrl) {
+      await addHistoryEntry('timetable', {
+        url: currentTimetableUrl,
+        eventTitle: currentEventInfo ? currentEventInfo.title : '',
+        order,
+      });
     }
   }
 
@@ -2739,6 +2774,12 @@
       await addHistoryEntry('list', {
         text: currentListQuery.text,
         eventName: currentListQuery.eventName,
+        ...payload,
+      });
+    } else if (currentTabMode === 'timetable' && currentTimetableUrl) {
+      await addHistoryEntry('timetable', {
+        url: currentTimetableUrl,
+        eventTitle: currentEventInfo ? currentEventInfo.title : '',
         ...payload,
       });
     }
@@ -3038,7 +3079,84 @@
     }
   });
 
-  // 初回ロード時にDB件数を取得し、オフライン用キャッシュも更新しておく
+  timetableForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const url = timetableInput.value.trim();
+    if (!url) return;
+
+    timetableGoBtn.disabled = true;
+    timetableGoBtn.textContent = '取り込み中…';
+    statusEl.className = '';
+    statusEl.textContent = 'スプレッドシートを取得してDBと照合しています…';
+    resultsEl.innerHTML = '';
+
+    try {
+      const res = await fetch('/api/timetable-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+
+      if (!data.ok) {
+        statusEl.className = 'error';
+        statusEl.textContent = data.error || '取り込みに失敗しました';
+        return;
+      }
+
+      dbCountEl.textContent = data.dbTotal;
+      statusEl.textContent = '';
+
+      const notFoundEntries = data.notFound || [];
+      const mergedList = [
+        ...data.groups.map((g) => ({ ...g, _unknown: false })),
+        ...notFoundEntries.map((n) => ({ name: n.name, pagePos: n.pagePos, _unknown: true, suggestions: n.suggestions || [] })),
+      ];
+      mergedList.sort((a, b) => (a.pagePos ?? 0) - (b.pagePos ?? 0));
+
+      const orderToKeep = pendingHistoryOrder;
+      currentGroups = orderToKeep ? applySavedOrder(mergedList, orderToKeep) : mergedList;
+      pendingHistoryOrder = null;
+
+      if (pendingStageState) {
+        currentStages = pendingStageState.stages || [];
+        currentStageAssignment = pendingStageState.stageAssignment || {};
+        pendingStageState = null;
+      } else {
+        // シートから読み取ったステージ構成をそのまま使う(初回取り込み時のデフォルト)
+        currentStages = (data.stages || []).map((name, i) => ({
+          id: `stage_${i}_${Date.now()}`,
+          name,
+          color: STAGE_COLORS[i % STAGE_COLORS.length],
+        }));
+        const nameToId = new Map(currentStages.map((s) => [s.name, s.id]));
+        currentStageAssignment = {};
+        for (const [groupName, stageName] of Object.entries(data.stageAssignment || {})) {
+          const id = nameToId.get(stageName);
+          if (id) currentStageAssignment[groupName] = id;
+        }
+      }
+      activeStageTabId = currentStages[0] ? currentStages[0].id : 'unassigned';
+      stageModeActive = true;
+
+      currentNotFound = [];
+      currentEventInfo = data.eventTitle ? { title: data.eventTitle } : null;
+      currentEditUrl = null;
+      currentListQuery = null;
+      currentTimetableUrl = url;
+      currentUnknownOnPage = notFoundEntries.map((n) => n.name);
+      addHistoryEntry('timetable', { url, eventTitle: data.eventTitle || '' });
+      draw();
+    } catch (err) {
+      statusEl.className = 'error';
+      statusEl.textContent = 'スプレッドシートの取得に失敗しました(オフライン、またはURLをご確認ください)';
+    } finally {
+      timetableGoBtn.disabled = false;
+      timetableGoBtn.textContent = '取り込む';
+    }
+  });
+
+
   updateOnlineStatus();
   updateCacheNote();
   runRefresh();
