@@ -943,12 +943,14 @@ function parseTimetableCsv(rows) {
   const stages = stageDefs.map((s) => ({ name: s.name, col: s.col, performers: [] }));
   const lastSeen = new Map(); // col -> 直前の "時間帯__名前"
   const timeSlots = []; // 時間目盛り(A列)を出現順に収集
+  const timeLabelPattern = /^\d{1,2}:\d{2}$/; // "10:00" のような時刻形式のみを対象にする
 
   for (let r = 2; r < rows.length; r++) {
     const row = rows[r];
     if (!row) continue;
     const timeLabel = String(row[0] || "").trim();
-    if (timeLabel && !timeSlots.includes(timeLabel)) timeSlots.push(timeLabel);
+    if (!timeLabelPattern.test(timeLabel)) continue; // 末尾の注釈行など、時刻ではない行はスキップ
+    if (!timeSlots.includes(timeLabel)) timeSlots.push(timeLabel);
 
     for (const stage of stages) {
       const timeRange = String(row[stage.col] || "").trim();
