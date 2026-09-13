@@ -942,10 +942,14 @@ function parseTimetableCsv(rows) {
 
   const stages = stageDefs.map((s) => ({ name: s.name, col: s.col, performers: [] }));
   const lastSeen = new Map(); // col -> 直前の "時間帯__名前"
+  const timeSlots = []; // 時間目盛り(A列)を出現順に収集
 
   for (let r = 2; r < rows.length; r++) {
     const row = rows[r];
     if (!row) continue;
+    const timeLabel = String(row[0] || "").trim();
+    if (timeLabel && !timeSlots.includes(timeLabel)) timeSlots.push(timeLabel);
+
     for (const stage of stages) {
       const timeRange = String(row[stage.col] || "").trim();
       const name = String(row[stage.col + 1] || "").trim();
@@ -954,11 +958,15 @@ function parseTimetableCsv(rows) {
       const key = `${timeRange}__${name}`;
       if (lastSeen.get(stage.col) === key) continue; // 同じ出演枠の連続行(5分刻み)をスキップ
       lastSeen.set(stage.col, key);
-      stage.performers.push(name);
+      stage.performers.push({ name, timeRange });
     }
   }
 
-  return { eventTitle, stages: stages.map((s) => ({ name: s.name, performers: s.performers })) };
+  return {
+    eventTitle,
+    stages: stages.map((s) => ({ name: s.name, performers: s.performers })),
+    timeSlots,
+  };
 }
 
 post("/api/timetable-import", async (req, res) => {
@@ -986,7 +994,7 @@ post("/api/timetable-import", async (req, res) => {
     }
     const csvText = await csvResp.text();
     const rows = parseCsv(csvText);
-    const { eventTitle, stages } = parseTimetableCsv(rows);
+    const { eventTitle, stages, timeSlots } = parseTimetableCsv(rows);
 
     if (stages.length === 0) {
       return res.status(400).json({
@@ -999,26 +1007,31 @@ post("/api/timetable-import", async (req, res) => {
     const groups = await getGroups();
     const allTokens = [];
     const tokenStageMap = []; // allTokensと同じ並びで、どのステージ名に属するかを記録
+    const tokenTimeMap = []; // allTokensと同じ並びで、時間帯("10:00-10:25")を記録
     for (const stage of stages) {
       for (const performer of stage.performers) {
-        allTokens.push(performer);
+        allTokens.push(performer.name);
         tokenStageMap.push(stage.name);
+        tokenTimeMap.push(performer.timeRange);
       }
     }
 
     const { matched, notFound } = matchListAgainstGroups(allTokens, groups);
 
-    // 照合結果とステージの対応付けは、名前の文字列一致ではなく
+    // 照合結果とステージ・時間帯の対応付けは、名前の文字列一致ではなく
     // 元のトークンの並び順(pagePos)で行う。DB照合時に表記ゆれ(スペースの有無など)を
     // 吸収して別表記の正式名にマッチすることがあり、名前同士の再照合では取りこぼすため。
     const stageAssignment = {};
+    const performerTimes = {};
     for (const g of matched) {
       const stageName = tokenStageMap[g.pagePos];
       if (stageName) stageAssignment[g.name] = stageName;
+      if (tokenTimeMap[g.pagePos]) performerTimes[g.name] = tokenTimeMap[g.pagePos];
     }
     for (const n of notFound) {
       const stageName = tokenStageMap[n.pagePos];
       if (stageName) stageAssignment[n.name] = stageName;
+      if (tokenTimeMap[n.pagePos]) performerTimes[n.name] = tokenTimeMap[n.pagePos];
     }
 
     res.json({
@@ -1026,6 +1039,8 @@ post("/api/timetable-import", async (req, res) => {
       eventTitle,
       stages: stages.map((s) => s.name),
       stageAssignment,
+      performerTimes,
+      timeSlots,
       matchedCount: matched.length,
       groups: matched,
       notFound,
