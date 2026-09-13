@@ -538,7 +538,10 @@
     padding: 7px 9px;
     vertical-align: top;
     min-width: 150px;
+    max-width: 150px;
     cursor: pointer;
+    overflow-wrap: break-word;
+    word-break: break-all;
   }
   .grid-cell-empty {
     background: var(--panel);
@@ -560,6 +563,8 @@
     align-items: center;
     gap: 6px;
     flex-wrap: wrap;
+    overflow-wrap: break-word;
+    word-break: break-all;
   }
   .grid-badges {
     display: inline-flex;
@@ -570,6 +575,8 @@
     font-size: 10px;
     color: var(--ink-dim);
     margin-top: 5px;
+    overflow-wrap: break-word;
+    word-break: break-all;
   }
   .grid-cell .export-unknown-tag {
     font-family: 'JetBrains Mono', monospace;
@@ -2660,6 +2667,22 @@
     const eventHtml = buildExportEventHtml();
     const { columns, columnBlocks } = computeGridColumns();
 
+    const TIME_COL_WIDTH = 50;
+    const STAGE_COL_WIDTH = 150;
+    const NOTE_MAX_LEN = 34; // URLなど区切りの無い長い備考が列を押し広げないよう、画像用に切り詰める
+
+    const truncateNote = (text) => {
+      const s = String(text || '');
+      return s.length > NOTE_MAX_LEN ? `${s.slice(0, NOTE_MAX_LEN)}…` : s;
+    };
+
+    const colgroupHtml = `
+      <colgroup>
+        <col style="width:${TIME_COL_WIDTH}px;">
+        ${columns.map(() => `<col style="width:${STAGE_COL_WIDTH}px;">`).join('')}
+      </colgroup>
+    `;
+
     const headHtml = `
       <tr>
         <td class="grid-head-time">時間</td>
@@ -2695,7 +2718,7 @@
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name">${escapeHtml(g.name)}</div>
                 <div class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</div>
-                ${g.note ? `<div class="export-note">${escapeHtml(g.note)}</div>` : ''}
+                ${g.note ? `<div class="export-note">${escapeHtml(truncateNote(g.note))}</div>` : ''}
               </td>`;
           }
           return;
@@ -2711,13 +2734,14 @@
       html: `
         ${eventHtml}
         <div class="export-title">照合結果(タイムテーブル)</div>
-        <table class="timetable-grid">
+        <table class="timetable-grid" style="table-layout:fixed; width:${TIME_COL_WIDTH + columns.length * STAGE_COL_WIDTH}px;">
+          ${colgroupHtml}
           <thead>${headHtml}</thead>
           <tbody>${rowsHtml}</tbody>
         </table>
         <div class="export-credit">撮可チェック — satsuka-check</div>
       `,
-      width: Math.max(460, 46 + columns.length * 150 + 40),
+      width: TIME_COL_WIDTH + columns.length * STAGE_COL_WIDTH + 40, // +40はexport-wrapの左右padding分
     };
   }
 
