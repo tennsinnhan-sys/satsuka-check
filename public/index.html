@@ -1838,7 +1838,7 @@
   // タイムテーブル取り込み専用: 時間×ステージのグリッド表示。
   // 同じ出演者が続く時間帯はセルを縦結合し、元のスプレッドシートのように
   // 「同じ行=同じ時間」で、どのステージと被っているかが一目で分かるようにする。
-  function renderStageGridView() {
+  function computeGridColumns() {
     const unassignedMembers = membersOfStage('unassigned');
     const columns = [
       ...(unassignedMembers.length ? [{ id: 'unassigned', name: '未振り分け', color: null }] : []),
@@ -1863,6 +1863,12 @@
       }
       return blocks;
     });
+
+    return { columns, columnBlocks };
+  }
+
+  function renderStageGridView() {
+    const { columns, columnBlocks } = computeGridColumns();
 
     const headHtml = `
       <tr>
@@ -2510,11 +2516,8 @@
     `;
   }
 
-  function buildExportHtml() {
-    const matched = currentGroups.filter((g) => !g._unknown).length;
-    const eventHtml = buildExportEventHtml();
-
-    const rows = currentGroups.map((g, i) => {
+  function buildExportRowsHtml(list) {
+    return list.map((g, i) => {
       if (g._unknown) {
         return `
           <div class="export-row unknown">
@@ -2541,10 +2544,39 @@
         </div>
       `;
     }).join('');
+  }
+
+  function buildExportHtml() {
+    const matched = currentGroups.filter((g) => !g._unknown).length;
+    const eventHtml = buildExportEventHtml();
+    const rows = buildExportRowsHtml(currentGroups);
 
     return `
       ${eventHtml}
       <div class="export-title">照合結果 (${matched})</div>
+      <div class="export-colheaders">
+        <span style="flex:1;"></span>
+        <span class="col-label">静止画</span>
+        <span class="col-label">動画</span>
+      </div>
+      <div class="export-rows">${rows}</div>
+      <div class="export-credit">撮可チェック — satsuka-check</div>
+    `;
+  }
+
+  // ステージ分け(タブ表示)の状態で「画像で保存」した場合は、画面に表示されている
+  // 今アクティブなタブ(1ステージ分)だけを、通常の縦一覧と同じ見た目で画像化する。
+  function buildExportHtmlTabs() {
+    const stage = currentStages.find((s) => s.id === activeStageTabId);
+    const title = stage ? stage.name : '未振り分け';
+    const members = membersOfStage(activeStageTabId);
+    const matched = members.filter((g) => !g._unknown).length;
+    const eventHtml = buildExportEventHtml();
+    const rows = buildExportRowsHtml(members);
+
+    return `
+      ${eventHtml}
+      <div class="export-title">${escapeHtml(title)} (${matched})</div>
       <div class="export-colheaders">
         <span style="flex:1;"></span>
         <span class="col-label">静止画</span>
@@ -2611,6 +2643,70 @@
     };
   }
 
+  // ステージ分け(グリッド表示)の状態で「画像で保存」した場合は、
+  // 時間×ステージのグリッドをそのまま(横スクロール無しの全体表示で)画像化する。
+  function buildExportHtmlGrid() {
+    const eventHtml = buildExportEventHtml();
+    const { columns, columnBlocks } = computeGridColumns();
+
+    const headHtml = `
+      <tr>
+        <td class="grid-head-time">時間</td>
+        ${columns.map((c) => `
+          <td class="grid-head-stage">
+            ${c.color ? `<span class="stage-dot" style="background:${c.color};"></span>` : ''}${escapeHtml(c.name)}
+          </td>
+        `).join('')}
+      </tr>
+    `;
+
+    let rowsHtml = '';
+    for (let r = 0; r < currentTimeSlots.length; r++) {
+      let rowHtml = `<td class="grid-time-col">${escapeHtml(currentTimeSlots[r])}</td>`;
+      columns.forEach((col, ci) => {
+        const blocks = columnBlocks[ci];
+        const startingBlock = blocks.find((b) => b.startIdx === r);
+        if (startingBlock) {
+          const g = startingBlock.group;
+          const borderColor = col.color || 'var(--line)';
+          if (g._unknown) {
+            rowHtml += `
+              <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};">
+                <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
+                <div class="grid-cell-name unknown-name">${escapeHtml(g.name)} <span class="unknown-tag">未登録</span></div>
+              </td>`;
+          } else {
+            const photo = chipInfo(g.photo);
+            const video = chipInfo(g.video);
+            rowHtml += `
+              <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};">
+                <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
+                <div class="grid-cell-name">${escapeHtml(g.name)}<span class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</span></div>
+              </td>`;
+          }
+          return;
+        }
+        const covered = blocks.some((b) => b.startIdx < r && b.startIdx + b.span > r);
+        if (covered) return;
+        rowHtml += `<td class="grid-cell-empty">—</td>`;
+      });
+      rowsHtml += `<tr>${rowHtml}</tr>`;
+    }
+
+    return {
+      html: `
+        ${eventHtml}
+        <div class="export-title">照合結果(タイムテーブル)</div>
+        <table class="timetable-grid">
+          <thead>${headHtml}</thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <div class="export-credit">撮可チェック — satsuka-check</div>
+      `,
+      width: Math.max(460, 46 + columns.length * 150 + 40),
+    };
+  }
+
 
 
   async function exportAsImage() {
@@ -2626,10 +2722,16 @@
 
     const wrap = document.createElement('div');
     wrap.className = 'export-wrap';
-    if (stageModeActive && stageViewMode === 'columns' && currentStages.length > 0) {
+    if (stageModeActive && stageViewMode === 'grid' && currentTimeSlots.length > 0) {
+      const built = buildExportHtmlGrid();
+      wrap.innerHTML = built.html;
+      wrap.style.width = `${built.width}px`;
+    } else if (stageModeActive && stageViewMode === 'columns' && currentStages.length > 0) {
       const built = buildExportHtmlColumns();
       wrap.innerHTML = built.html;
       wrap.style.width = `${built.width}px`;
+    } else if (stageModeActive && stageViewMode === 'tabs' && currentStages.length > 0) {
+      wrap.innerHTML = buildExportHtmlTabs();
     } else {
       wrap.innerHTML = buildExportHtml();
     }
