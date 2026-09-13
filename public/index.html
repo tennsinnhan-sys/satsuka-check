@@ -540,8 +540,6 @@
     min-width: 150px;
     max-width: 150px;
     cursor: pointer;
-    overflow-wrap: break-word;
-    word-break: break-all;
   }
   .grid-cell-empty {
     background: var(--panel);
@@ -559,15 +557,13 @@
     font-weight: 700;
     font-size: 12px;
     color: var(--ink);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    overflow-wrap: break-word;
-    word-break: break-all;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
   .grid-badges {
-    display: inline-flex;
+    display: flex;
     gap: 4px;
     margin-top: 4px;
   }
@@ -1892,8 +1888,8 @@
       <tr>
         <td class="grid-head-time">時間</td>
         ${columns.map((c) => `
-          <td class="grid-head-stage">
-            ${c.color ? `<span class="stage-dot" style="background:${c.color};"></span>` : ''}${escapeHtml(c.name)}
+          <td class="grid-head-stage" ${c.color ? `style="background:${c.color};"` : ''}>
+            ${escapeHtml(c.name)}
           </td>
         `).join('')}
       </tr>
@@ -1912,7 +1908,8 @@
             rowHtml += `
               <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(g.name)}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
-                <div class="grid-cell-name unknown-name">${escapeHtml(g.name)} <span class="unknown-tag">未登録</span></div>
+                <div class="grid-cell-name unknown-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}</div>
+                <span class="unknown-tag">未登録</span>
               </td>`;
           } else {
             const photo = chipInfo(g.photo);
@@ -1920,7 +1917,8 @@
             rowHtml += `
               <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(g.name)}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
-                <div class="grid-cell-name">${escapeHtml(g.name)}<span class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</span></div>
+                <div class="grid-cell-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}</div>
+                <div class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</div>
               </td>`;
           }
           return;
@@ -2687,8 +2685,8 @@
       <tr>
         <td class="grid-head-time">時間</td>
         ${columns.map((c) => `
-          <td class="grid-head-stage">
-            ${c.color ? `<span class="stage-dot" style="background:${c.color};"></span>` : ''}${escapeHtml(c.name)}
+          <td class="grid-head-stage" ${c.color ? `style="background:${c.color};"` : ''}>
+            ${escapeHtml(c.name)}
           </td>
         `).join('')}
       </tr>
