@@ -564,6 +564,17 @@
   .grid-badges {
     display: inline-flex;
     gap: 4px;
+    margin-top: 4px;
+  }
+  .grid-cell .export-note {
+    font-size: 10px;
+    color: var(--ink-dim);
+    margin-top: 5px;
+  }
+  .grid-cell .export-unknown-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--ink-dim);
   }
 
   /* 通常のカードに表示するステージ色バッジ */
@@ -2673,7 +2684,8 @@
             rowHtml += `
               <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
-                <div class="grid-cell-name unknown-name">${escapeHtml(g.name)} <span class="unknown-tag">未登録</span></div>
+                <div class="grid-cell-name unknown-name">${escapeHtml(g.name)}</div>
+                <span class="export-unknown-tag">未登録</span>
               </td>`;
           } else {
             const photo = chipInfo(g.photo);
@@ -2681,7 +2693,9 @@
             rowHtml += `
               <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
-                <div class="grid-cell-name">${escapeHtml(g.name)}<span class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</span></div>
+                <div class="grid-cell-name">${escapeHtml(g.name)}</div>
+                <div class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</div>
+                ${g.note ? `<div class="export-note">${escapeHtml(g.note)}</div>` : ''}
               </td>`;
           }
           return;
