@@ -1008,19 +1008,16 @@ post("/api/timetable-import", async (req, res) => {
 
     const { matched, notFound } = matchListAgainstGroups(allTokens, groups);
 
-    // 照合結果の各グループ名から、対応するステージ名を逆引きできるようにする
-    const nameToStage = new Map();
-    allTokens.forEach((token, i) => {
-      const norm = normalizeStr(token).toLowerCase();
-      if (!nameToStage.has(norm)) nameToStage.set(norm, tokenStageMap[i]);
-    });
+    // 照合結果とステージの対応付けは、名前の文字列一致ではなく
+    // 元のトークンの並び順(pagePos)で行う。DB照合時に表記ゆれ(スペースの有無など)を
+    // 吸収して別表記の正式名にマッチすることがあり、名前同士の再照合では取りこぼすため。
     const stageAssignment = {};
     for (const g of matched) {
-      const stageName = nameToStage.get(normalizeStr(g.name).toLowerCase());
+      const stageName = tokenStageMap[g.pagePos];
       if (stageName) stageAssignment[g.name] = stageName;
     }
     for (const n of notFound) {
-      const stageName = nameToStage.get(normalizeStr(n.name).toLowerCase());
+      const stageName = tokenStageMap[n.pagePos];
       if (stageName) stageAssignment[n.name] = stageName;
     }
 
