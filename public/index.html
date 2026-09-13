@@ -530,6 +530,14 @@
     color: var(--ink-dim);
     line-height: 1.5;
   }
+  .timetable-template-link {
+    display: inline-block;
+    margin-top: 6px;
+    color: var(--flash);
+    text-decoration: underline;
+    font-size: 11px;
+  }
+  .timetable-template-link:hover { opacity: 0.8; }
 
   .not-found {
     margin-top: 26px;
@@ -1327,7 +1335,10 @@
     <form id="timetableForm" autocomplete="off" style="display:none;">
       <div class="stub">
         <input type="url" id="timetableInput" placeholder="https://docs.google.com/spreadsheets/d/xxxxx/edit#gid=xxxxx" required />
-        <div class="timetable-hint">マージセルのタイムテーブル形式(1行目タイトル・2行目にステージ見出し)のGoogleスプレッドシートに対応。「リンクを知っている全員が閲覧可」の共有設定にしてください。</div>
+        <div class="timetable-hint">
+          マージセルのタイムテーブル形式(1行目タイトル・2行目にステージ見出し)のGoogleスプレッドシートに対応。「リンクを知っている全員が閲覧可」の共有設定にしてください。
+          <a href="/timetable-template.xlsx" download class="timetable-template-link">📥 テンプレート(.xlsx)をダウンロード</a>
+        </div>
         <button class="go" id="timetableGoBtn" type="submit">取り込む</button>
       </div>
     </form>
