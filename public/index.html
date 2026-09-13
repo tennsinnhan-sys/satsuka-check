@@ -538,6 +538,7 @@
     padding: 7px 9px;
     vertical-align: top;
     min-width: 150px;
+    cursor: pointer;
   }
   .grid-cell-empty {
     background: var(--panel);
@@ -1885,7 +1886,7 @@
           const borderColor = col.color || 'var(--line)';
           if (g._unknown) {
             rowHtml += `
-              <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};">
+              <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(g.name)}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name unknown-name">${escapeHtml(g.name)} <span class="unknown-tag">未登録</span></div>
               </td>`;
@@ -1893,7 +1894,7 @@
             const photo = chipInfo(g.photo);
             const video = chipInfo(g.video);
             rowHtml += `
-              <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};">
+              <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(g.name)}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name">${escapeHtml(g.name)}<span class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</span></div>
               </td>`;
@@ -2025,6 +2026,20 @@
         e.dataTransfer.setData('text/plain', stageDragName);
       });
       cardEl.addEventListener('dragend', () => cardEl.classList.remove('dragging'));
+      cardEl.addEventListener('click', (e) => {
+        if (!editMode) return;
+        const idx = currentGroups.findIndex((g) => g.name === cardEl.dataset.stageDragName);
+        if (idx !== -1 && !currentGroups[idx]._unknown) openEditModal(idx);
+      });
+    });
+
+    // グリッド表示のセルも、編集モード時はタップでこの場限定の編集ができるようにする
+    resultsEl.querySelectorAll('.grid-cell[data-grid-name]').forEach((cell) => {
+      cell.addEventListener('click', () => {
+        if (!editMode) return;
+        const idx = currentGroups.findIndex((g) => g.name === cell.dataset.gridName);
+        if (idx !== -1 && !currentGroups[idx]._unknown) openEditModal(idx);
+      });
     });
   }
 
