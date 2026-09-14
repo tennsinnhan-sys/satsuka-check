@@ -1749,9 +1749,9 @@
     return `
       <div class="stage-toolbar">
         <div class="stage-view-toggle">
-          ${hasTimeData ? `<button type="button" data-view="grid" class="${stageViewMode === 'grid' ? 'active' : ''}">グリッド</button>` : ''}
           <button type="button" data-view="tabs" class="${stageViewMode === 'tabs' ? 'active' : ''}">タブ</button>
           <button type="button" data-view="columns" class="${stageViewMode === 'columns' ? 'active' : ''}">横並び</button>
+          ${hasTimeData ? `<button type="button" data-view="grid" class="${stageViewMode === 'grid' ? 'active' : ''}">グリッド</button>` : ''}
         </div>
         <form class="stage-add-form" id="stageAddForm">
           <input type="text" id="stageAddInput" placeholder="ステージ名を入力(例: Aステージ)" maxlength="30" />
@@ -2987,6 +2987,11 @@
       if (Object.prototype.hasOwnProperty.call(currentStageAssignment, original)) {
         currentStageAssignment[matchGroup.name] = currentStageAssignment[original];
         delete currentStageAssignment[original];
+      }
+      // グリッド表示用の時間帯データも同様に、名前の変更に合わせて引き継ぐ
+      if (Object.prototype.hasOwnProperty.call(currentPerformerTimes, original)) {
+        currentPerformerTimes[matchGroup.name] = currentPerformerTimes[original];
+        delete currentPerformerTimes[original];
       }
       draw();
       if (currentTabMode === 'timetable') saveCurrentStageStateToHistory();
