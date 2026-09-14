@@ -3720,13 +3720,15 @@
       }
 
       // 履歴から呼び出した場合、保存済みのステージ割り当てが現在のキー形式(pos:数字)と
-      // 互換性があるかを確認する。以前のバージョンで保存された旧形式(名前ベース)の履歴だと
-      // キーが噛み合わず何も表示されなくなるため、その場合はシートの構成にフォールバックする
+      // 互換性があるかを確認する。以前のバージョンで保存された旧形式(名前ベース)の履歴や、
+      // 空の割り当てだと、キーが噛み合わず全員「未振り分け」になってしまうため、
+      // その場合はシートから読み取ったフレッシュな構成にフォールバックする。
       const pendingAssignmentKeys = pendingStageState && pendingStageState.stageAssignment
         ? Object.keys(pendingStageState.stageAssignment)
-        : null;
+        : [];
       const isPendingCompatible = pendingStageState
-        && (pendingAssignmentKeys.length === 0 || pendingAssignmentKeys.every((k) => k.startsWith('pos:')));
+        && pendingAssignmentKeys.length > 0
+        && pendingAssignmentKeys.every((k) => k.startsWith('pos:'));
 
       if (isPendingCompatible) {
         currentStages = pendingStageState.stages || [];
