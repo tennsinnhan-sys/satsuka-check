@@ -3706,24 +3706,36 @@
       currentGroups = orderToKeep ? applySavedOrder(mergedList, orderToKeep) : mergedList;
       pendingHistoryOrder = null;
 
-      if (pendingStageState) {
+      // シートから読み取ったステージ構成を、常にベースとして計算しておく
+      const freshStages = (data.stages || []).map((name, i) => ({
+        id: `stage_${i}_${Date.now()}`,
+        name,
+        color: STAGE_COLORS[i % STAGE_COLORS.length],
+      }));
+      const nameToId = new Map(freshStages.map((s) => [s.name, s.id]));
+      const freshStageAssignment = {};
+      for (const [pagePos, stageName] of Object.entries(data.stageAssignment || {})) {
+        const id = nameToId.get(stageName);
+        if (id) freshStageAssignment[`pos:${pagePos}`] = id;
+      }
+
+      // 履歴から呼び出した場合、保存済みのステージ割り当てが現在のキー形式(pos:数字)と
+      // 互換性があるかを確認する。以前のバージョンで保存された旧形式(名前ベース)の履歴だと
+      // キーが噛み合わず何も表示されなくなるため、その場合はシートの構成にフォールバックする
+      const pendingAssignmentKeys = pendingStageState && pendingStageState.stageAssignment
+        ? Object.keys(pendingStageState.stageAssignment)
+        : null;
+      const isPendingCompatible = pendingStageState
+        && (pendingAssignmentKeys.length === 0 || pendingAssignmentKeys.every((k) => k.startsWith('pos:')));
+
+      if (isPendingCompatible) {
         currentStages = pendingStageState.stages || [];
         currentStageAssignment = pendingStageState.stageAssignment || {};
-        pendingStageState = null;
       } else {
-        // シートから読み取ったステージ構成をそのまま使う(初回取り込み時のデフォルト)
-        currentStages = (data.stages || []).map((name, i) => ({
-          id: `stage_${i}_${Date.now()}`,
-          name,
-          color: STAGE_COLORS[i % STAGE_COLORS.length],
-        }));
-        const nameToId = new Map(currentStages.map((s) => [s.name, s.id]));
-        currentStageAssignment = {};
-        for (const [pagePos, stageName] of Object.entries(data.stageAssignment || {})) {
-          const id = nameToId.get(stageName);
-          if (id) currentStageAssignment[`pos:${pagePos}`] = id;
-        }
+        currentStages = freshStages;
+        currentStageAssignment = freshStageAssignment;
       }
+      pendingStageState = null;
       activeStageTabId = currentStages[0] ? currentStages[0].id : 'unassigned';
       stageModeActive = true;
       currentPerformerTimes = {};
