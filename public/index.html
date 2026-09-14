@@ -246,6 +246,12 @@
     font-size: 12.5px;
     text-align: center;
   }
+  .history-offline-note {
+    padding: 6px 10px 10px;
+    color: var(--maybe);
+    font-size: 11px;
+    line-height: 1.5;
+  }
   .history-item {
     display: flex;
     align-items: center;
@@ -1531,8 +1537,28 @@
   }
 
   // ---- 検索履歴(サーバー側=Cloudflare KVに保存。PC/スマホなど全端末で共通) ----
+  // オンライン時に取得できたら端末にもキャッシュしておき、オフライン時はそちらを表示する
+  const HISTORY_CACHE_KEY = 'satsuka_check_history_cache_v1';
   let historyCache = { url: [], list: [], timetable: [] };
   let historyLoadFailed = false;
+  let historyIsFromCache = false;
+
+  function saveHistoryCache(data) {
+    try {
+      localStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify({ ...data, cachedAt: Date.now() }));
+    } catch (e) {
+      // 保存容量オーバー等は無視(オフライン機能が使えないだけで致命的ではない)
+    }
+  }
+
+  function loadHistoryCache() {
+    try {
+      const raw = localStorage.getItem(HISTORY_CACHE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
 
   async function fetchHistoryFromServer() {
     try {
@@ -1541,11 +1567,21 @@
       if (data.ok) {
         historyCache = { url: data.url || [], list: data.list || [], timetable: data.timetable || [] };
         historyLoadFailed = false;
+        historyIsFromCache = false;
+        saveHistoryCache(historyCache);
       } else {
         historyLoadFailed = true;
       }
     } catch (e) {
-      historyLoadFailed = true;
+      // オフライン等で取得できない場合は、端末に保存済みの履歴キャッシュがあればそれを使う
+      const cached = loadHistoryCache();
+      if (cached) {
+        historyCache = { url: cached.url || [], list: cached.list || [], timetable: cached.timetable || [] };
+        historyLoadFailed = false;
+        historyIsFromCache = true;
+      } else {
+        historyLoadFailed = true;
+      }
     }
     return historyCache;
   }
@@ -1598,7 +1634,7 @@
     const kind = currentTabMode;
 
     if (historyLoadFailed) {
-      historyPanel.innerHTML = `<div class="history-empty">オフラインのため履歴を取得できません</div>`;
+      historyPanel.innerHTML = `<div class="history-empty">オフラインで、かつ端末に保存済みの履歴もありません</div>`;
       return;
     }
 
@@ -1609,6 +1645,10 @@
       return;
     }
 
+    const offlineNoteHtml = historyIsFromCache
+      ? `<div class="history-offline-note">オフラインのため、端末に保存済みの履歴(直近取得分)を表示しています</div>`
+      : '';
+
     const rows = list.map((it) => {
       const mainText = kind === 'url' ? (it.title || it.url)
         : kind === 'timetable' ? (it.eventTitle || it.url)
@@ -1616,20 +1656,21 @@
       const subText = kind === 'url' ? it.url
         : kind === 'timetable' ? `${(it.stages || []).length}ステージ`
         : it.text.replace(/\n/g, ' / ');
+      const delBtnHtml = historyIsFromCache ? '' : `<button type="button" class="hi-del" title="この履歴を削除" data-del-ts="${it.ts}">✕</button>`;
       return `
         <div class="history-item" data-ts="${it.ts}">
           <div class="hi-main">
             <div class="hi-query">${escapeHtml(mainText || "")}</div>
             <div class="hi-meta">${escapeHtml(subText || "").slice(0, 60)} ・ ${formatCachedAt(it.ts)}</div>
           </div>
-          <button type="button" class="hi-del" title="この履歴を削除" data-del-ts="${it.ts}">✕</button>
+          ${delBtnHtml}
         </div>`;
     }).join('');
 
-    historyPanel.innerHTML = rows + `
+    historyPanel.innerHTML = offlineNoteHtml + rows + (historyIsFromCache ? '' : `
       <div class="history-clear-row">
         <button type="button" id="historyClearBtn">履歴を全て消去</button>
-      </div>`;
+      </div>`);
 
     historyPanel.querySelectorAll('.history-item').forEach((row) => {
       row.addEventListener('click', (e) => {
