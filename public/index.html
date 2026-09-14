@@ -526,8 +526,15 @@
     position: sticky;
     top: 0;
   }
-  .grid-head-time { min-width: 46px; }
-  .grid-head-stage { min-width: 150px; }
+  .grid-head-time {
+    min-width: 46px;
+    left: 0;
+    z-index: 3; /* 縦(見出し行)・横(時間列)どちらのスクロールでも最前面に来る角セル */
+  }
+  .grid-head-stage {
+    min-width: 150px;
+    z-index: 2;
+  }
   .grid-time-col {
     background: var(--stage-deep);
     color: var(--flash);
@@ -536,6 +543,9 @@
     text-align: center;
     border-bottom: 1px solid var(--line);
     white-space: nowrap;
+    position: sticky;
+    left: 0;
+    z-index: 1;
   }
   .grid-cell {
     background: var(--panel);
