@@ -1108,6 +1108,7 @@
     font-weight: 700;
     position: relative;
     color: #ffffff;
+    cursor: pointer;
   }
   .badge.ok       { background: var(--ok); }
   .badge.ng       { background: var(--ng); }
@@ -1465,6 +1466,16 @@
       </div>
     </div>
 
+    <div class="modal-overlay" id="detailModal">
+      <div class="modal-box">
+        <div class="modal-header">
+          <span class="name" id="detailModalName"></span>
+          <button type="button" class="modal-close" id="detailModalClose" aria-label="閉じる">✕</button>
+        </div>
+        <div id="detailModalBody"></div>
+      </div>
+    </div>
+
     <footer>グループ名がページ本文にそのまま含まれるかで判定する簡易照合です。表記ゆれ等で漏れる場合があります。最終確認は各グループの公式Xで。<br>一度オンラインで開いておくと、グループ名リスト照合はオフラインでも利用できます(端末にDBを保存)。</footer>
   </div>
 
@@ -1499,6 +1510,11 @@
   const editModalClose = document.getElementById('editModalClose');
   const editModalReset = document.getElementById('editModalReset');
   const editModalSave = document.getElementById('editModalSave');
+
+  const detailModal = document.getElementById('detailModal');
+  const detailModalName = document.getElementById('detailModalName');
+  const detailModalBody = document.getElementById('detailModalBody');
+  const detailModalClose = document.getElementById('detailModalClose');
 
   // ---- Service Worker登録(オフラインでもアプリの画面自体は開けるようにする) ----
   if ('serviceWorker' in navigator) {
@@ -2104,6 +2120,13 @@
         const idx = currentGroups.findIndex((g) => g.name === cardEl.dataset.stageDragName);
         if (idx !== -1 && !currentGroups[idx]._unknown) openEditModal(idx);
       });
+      cardEl.querySelectorAll('.badge').forEach((badgeEl) => {
+        badgeEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const g = currentGroups.find((gr) => gr.name === cardEl.dataset.stageDragName);
+          openDetailModal(g);
+        });
+      });
     });
 
     // グリッド表示のセルも、編集モード時はタップでこの場限定の編集ができるようにする
@@ -2112,6 +2135,13 @@
         if (!editMode) return;
         const idx = currentGroups.findIndex((g) => g.name === cell.dataset.gridName);
         if (idx !== -1 && !currentGroups[idx]._unknown) openEditModal(idx);
+      });
+      cell.querySelectorAll('.badge').forEach((badgeEl) => {
+        badgeEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const g = currentGroups.find((gr) => gr.name === cell.dataset.gridName);
+          openDetailModal(g);
+        });
       });
     });
   }
@@ -2499,13 +2529,8 @@
     `;
   }
 
-  function renderCard(g, index, total) {
-    if (g._unknown) return renderUnknownCard(g, index);
-
-    const photo = chipInfo(g.photo);
-    const video = chipInfo(g.video);
-    const showQueryNote = g.matchType === 'fuzzy' && g.query && g.query !== g.name;
-
+  // グループの「𝕏 公式 / 𝕏を検索 / ソース」リンク一覧を組み立てる(通常カード・詳細モーダル共通)
+  function buildGroupLinks(g) {
     const links = [];
     if (isUrl(g.xLink)) {
       links.push({ href: g.xLink, label: '𝕏 公式' });
@@ -2514,6 +2539,17 @@
     }
     if (isUrl(g.source1)) links.push({ href: g.source1, label: 'ソース1' });
     if (isUrl(g.source2)) links.push({ href: g.source2, label: 'ソース2' });
+    return links;
+  }
+
+  function renderCard(g, index, total) {
+    if (g._unknown) return renderUnknownCard(g, index);
+
+    const photo = chipInfo(g.photo);
+    const video = chipInfo(g.video);
+    const showQueryNote = g.matchType === 'fuzzy' && g.query && g.query !== g.name;
+
+    const links = buildGroupLinks(g);
 
     const hasDetail = showQueryNote || g.note || links.length > 0;
     const assignedStage = currentStages.length ? stageById(currentStageAssignment[g.name]) : null;
@@ -3279,6 +3315,33 @@
   editModalClose.addEventListener('click', closeEditModal);
   editModal.addEventListener('click', (e) => {
     if (e.target === editModal) closeEditModal();
+  });
+
+  // 静止画/動画バッジをタップした時に、備考・𝕏リンク・ソースを確認できる読み取り専用モーダル
+  // (「横並び」「グリッド」表示ではカード自体をタップすると編集モードが開いてしまうため、
+  //  バッジだけは別扱いにして、ここから備考・リンクを見られるようにしている)
+  function openDetailModal(g) {
+    if (!g || g._unknown) return;
+    const links = buildGroupLinks(g);
+    const showQueryNote = g.matchType === 'fuzzy' && g.query && g.query !== g.name;
+
+    detailModalName.textContent = g.name;
+    detailModalBody.innerHTML = `
+      ${showQueryNote ? `<div class="query-note">入力: 「${escapeHtml(g.query)}」に近い名前で一致(表記ゆれの可能性)</div>` : ''}
+      ${g.note ? `<div class="note">${escapeHtml(g.note)}</div>` : ''}
+      ${links.length ? `<div class="links">${links.map((l) => `<a class="link-btn" href="${escapeAttr(l.href)}" target="_blank" rel="noopener noreferrer">${l.label} ↗</a>`).join('')}</div>` : ''}
+      ${!showQueryNote && !g.note && links.length === 0 ? `<div class="modal-hint">表示できる情報がありません</div>` : ''}
+    `;
+    detailModal.classList.add('show');
+  }
+
+  function closeDetailModal() {
+    detailModal.classList.remove('show');
+  }
+
+  detailModalClose.addEventListener('click', closeDetailModal);
+  detailModal.addEventListener('click', (e) => {
+    if (e.target === detailModal) closeDetailModal();
   });
 
   function escapeHtml(str) {
