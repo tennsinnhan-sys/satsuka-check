@@ -78,6 +78,31 @@ async function notionDatabaseQuery(cursor) {
   return resp.json();
 }
 
+// グループ名のみ(+レギュ確認日+備考)でNotionに新規ページを作成する
+async function notionCreateGroupPage(name, checkedDate, note) {
+  const resp = await fetch(`https://api.notion.com/v1/pages`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.NOTION_TOKEN}`,
+      "Notion-Version": NOTION_VERSION,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      parent: { database_id: DATABASE_ID },
+      properties: {
+        "グループ名": { title: [{ text: { content: name } }] },
+        "レギュ確認日": { date: { start: checkedDate } },
+        "備考": { rich_text: [{ text: { content: note } }] },
+      },
+    }),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text().catch(() => "");
+    throw new Error(`Notion API エラー (HTTP ${resp.status}): ${errText}`);
+  }
+  return resp.json();
+}
+
 // ---- Notion DB キャッシュ ----
 let groupCache = [];
 let lastFetched = 0;
@@ -424,6 +449,44 @@ post("/api/refresh", async (req, res) => {
   try {
     const groups = await getGroups(true);
     res.json({ ok: true, count: groups.length });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// 未登録グループを、グループ名のみでまとめてNotionに新規登録する
+// (静止画/動画レギュは未設定のまま。確認日=登録日、備考="撮可チェックより"を自動で入れる)
+post("/api/register-groups", async (req, res) => {
+  try {
+    const { names } = req.body || {};
+    if (!Array.isArray(names) || names.length === 0) {
+      return res.status(400).json({ ok: false, error: "登録するグループ名がありません" });
+    }
+    // 念のため上限を設ける(誤操作での大量登録防止)
+    const targets = [...new Set(names.map((n) => String(n || "").trim()).filter(Boolean))].slice(0, 100);
+    if (targets.length === 0) {
+      return res.status(400).json({ ok: false, error: "登録するグループ名がありません" });
+    }
+
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const note = "撮可チェックより";
+
+    const results = [];
+    for (const name of targets) {
+      try {
+        await notionCreateGroupPage(name, today, note);
+        results.push({ name, ok: true });
+      } catch (e) {
+        results.push({ name, ok: false, error: String(e.message || e) });
+      }
+    }
+
+    // 登録内容が反映されるよう、次回のDB取得時にキャッシュを強制更新させる
+    lastFetched = 0;
+
+    const successCount = results.filter((r) => r.ok).length;
+    res.json({ ok: true, successCount, results });
   } catch (e) {
     console.error(e);
     res.status(500).json({ ok: false, error: String(e.message || e) });

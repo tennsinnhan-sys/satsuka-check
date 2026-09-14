@@ -564,6 +564,14 @@
     padding: 6px 9px;
     text-align: center;
   }
+  .grid-time-col.grid-now {
+    background: var(--maybe);
+    color: #ffffff;
+  }
+  td.grid-cell.grid-now,
+  td.grid-cell-empty.grid-now {
+    box-shadow: inset 0 2px 0 var(--maybe), inset 0 -2px 0 var(--maybe);
+  }
   .grid-cell-time {
     font-size: 9.5px;
     color: var(--ink-dim);
@@ -684,6 +692,21 @@
     border: 1px solid rgba(74,127,158,0.3);
     color: var(--partial);
   }
+  .register-groups-btn {
+    width: 100%;
+    margin-top: 4px;
+    background: var(--flash);
+    color: #ffffff;
+    border: none;
+    border-radius: 10px;
+    padding: 9px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .register-groups-btn:hover { opacity: 0.85; }
+  .register-groups-btn:disabled { opacity: 0.5; cursor: default; }
 
   .card.unknown-card {
     background: rgba(74,127,158,0.05);
@@ -1533,6 +1556,13 @@
     });
   }
 
+  // グリッド表示中は1分ごとに再描画し、「今の時間」のハイライトを追従させる
+  setInterval(() => {
+    if (stageModeActive && stageViewMode === 'grid' && currentTimeSlots.length) {
+      draw();
+    }
+  }, 60 * 1000);
+
   // ---- オフライン時に使うDBスナップショットのキャッシュ(localStorage) ----
   const GROUPS_CACHE_KEY = 'satsuka_check_groups_cache_v1';
 
@@ -1951,6 +1981,17 @@
   function renderStageGridView() {
     const { columns, columnBlocks } = computeGridColumns();
 
+    // 現在時刻に最も近い(直前の)時間目盛りの行を「今」としてハイライトする
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const slotMinutes = currentTimeSlots.map(timeToMinutes);
+    let nowRowIndex = -1;
+    for (let i = 0; i < slotMinutes.length; i++) {
+      if (slotMinutes[i] !== null && slotMinutes[i] <= nowMinutes) nowRowIndex = i;
+    }
+    // 深夜開催などで時間が日をまたいで小さくなる(例: 23:55→0:00)場合のケアはせず、
+    // 「現在時刻以下で一番近い行」が見つからなければハイライトしない
+
     const headHtml = `
       <tr>
         <td class="grid-head-time">時間</td>
@@ -1964,7 +2005,8 @@
 
     let rowsHtml = '';
     for (let r = 0; r < currentTimeSlots.length; r++) {
-      let rowHtml = `<td class="grid-time-col">${escapeHtml(currentTimeSlots[r])}</td>`;
+      const isNowRow = r === nowRowIndex;
+      let rowHtml = `<td class="grid-time-col${isNowRow ? ' grid-now' : ''}">${escapeHtml(currentTimeSlots[r])}${isNowRow ? ' ●' : ''}</td>`;
       columns.forEach((col, ci) => {
         const blocks = columnBlocks[ci];
         const startingBlock = blocks.find((b) => b.startIdx === r);
@@ -1973,7 +2015,7 @@
           const borderColor = col.color || 'var(--line)';
           if (g._unknown) {
             rowHtml += `
-              <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(g.name)}">
+              <td class="grid-cell${isNowRow ? ' grid-now' : ''}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(g.name)}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name unknown-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}</div>
                 <span class="unknown-tag">未登録</span>
@@ -1982,7 +2024,7 @@
             const photo = chipInfo(g.photo);
             const video = chipInfo(g.video);
             rowHtml += `
-              <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(g.name)}">
+              <td class="grid-cell${isNowRow ? ' grid-now' : ''}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(g.name)}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}</div>
                 <div class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</div>
@@ -1992,7 +2034,7 @@
         }
         const covered = blocks.some((b) => b.startIdx < r && b.startIdx + b.span > r);
         if (covered) return; // rowspanで既に埋まっているので何も出力しない
-        rowHtml += `<td class="grid-cell-empty">—</td>`;
+        rowHtml += `<td class="grid-cell-empty${isNowRow ? ' grid-now' : ''}">—</td>`;
       });
       rowsHtml += `<tr>${rowHtml}</tr>`;
     }
@@ -2930,9 +2972,45 @@
           <h3>ページに記載があるがDB未登録 (${list.length})</h3>
           <span class="chevron">▸</span>
         </div>
-        <div class="tags" style="display:none;">${list.map((t) => `<span>${escapeHtml(t)}</span>`).join('')}</div>
+        <div class="tags" style="display:none;">
+          ${list.map((t) => `<span>${escapeHtml(t)}</span>`).join('')}
+          <button type="button" class="register-groups-btn" id="registerGroupsBtn">📥 まとめてNotionに登録(${list.length}件)</button>
+        </div>
       </div>
     `;
+  }
+
+  async function registerUnknownGroups(names) {
+    const btn = document.getElementById('registerGroupsBtn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '登録中…';
+    }
+    try {
+      const res = await fetch('/api/register-groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ names }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        alert(data.error || '登録に失敗しました');
+        return;
+      }
+      const failed = data.results.filter((r) => !r.ok);
+      if (failed.length > 0) {
+        alert(`${data.successCount}件登録しました。\n以下は失敗しました:\n${failed.map((f) => `・${f.name}`).join('\n')}`);
+      } else {
+        alert(`${data.successCount}件をNotionに登録しました(グループ名のみ・要レギュ確認)`);
+      }
+    } catch (e) {
+      alert('通信エラーで登録できませんでした。オンラインの状態でお試しください。');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '📥 まとめてNotionに登録';
+      }
+    }
   }
 
   function draw() {
@@ -2989,6 +3067,20 @@
       stageToggleEl.addEventListener('click', () => {
         stageModeActive = !stageModeActive;
         draw();
+      });
+    }
+
+    const registerBtn = document.getElementById('registerGroupsBtn');
+    if (registerBtn) {
+      registerBtn.addEventListener('click', () => {
+        const names = currentUnknownOnPage.slice();
+        if (names.length === 0) return;
+        const ok = confirm(
+          `未登録の${names.length}件を、グループ名のみでNotionに新規登録します。\n` +
+          `(静止画/動画レギュは未設定、備考「撮可チェックより」、確認日は本日で登録)\n\n` +
+          `よろしいですか?`
+        );
+        if (ok) registerUnknownGroups(names);
       });
     }
 
