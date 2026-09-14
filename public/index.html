@@ -1799,7 +1799,7 @@
 
   function membersOfStage(stageId) {
     // 現在の照合結果(currentGroups)の並び順を保ったまま、そのステージに割り当てられたものだけ抽出
-    return currentGroups.filter((g) => (currentStageAssignment[g.name] || 'unassigned') === stageId);
+    return currentGroups.filter((g) => (currentStageAssignment[slotKey(g)] || 'unassigned') === stageId);
   }
 
   function addStage(name) {
@@ -1832,12 +1832,12 @@
     saveCurrentStageStateToHistory();
   }
 
-  function reorderWithinCurrentGroups(draggedName, targetName) {
-    if (draggedName === targetName) return;
-    const srcIdx = currentGroups.findIndex((g) => g.name === draggedName);
+  function reorderWithinCurrentGroups(draggedKey, targetKey) {
+    if (draggedKey === targetKey) return;
+    const srcIdx = currentGroups.findIndex((g) => slotKey(g) === draggedKey);
     if (srcIdx === -1) return;
     const [moved] = currentGroups.splice(srcIdx, 1);
-    const tgtIdx = currentGroups.findIndex((g) => g.name === targetName);
+    const tgtIdx = currentGroups.findIndex((g) => slotKey(g) === targetKey);
     currentGroups.splice(tgtIdx === -1 ? currentGroups.length : tgtIdx, 0, moved);
   }
 
@@ -1862,7 +1862,7 @@
     const borderStyle = color ? `style="border-left-color:${color};"` : '';
     if (g._unknown) {
       return `
-        <div class="stage-card" ${borderStyle} draggable="true" data-stage-drag-name="${escapeAttr(g.name)}">
+        <div class="stage-card" ${borderStyle} draggable="true" data-stage-drag-name="${escapeAttr(slotKey(g))}">
           <span>⠿</span>
           <span class="stage-card-name">${escapeHtml(g.name)}</span>
           <span class="unknown-tag">未登録</span>
@@ -1872,7 +1872,7 @@
     const photo = chipInfo(g.photo);
     const video = chipInfo(g.video);
     return `
-      <div class="stage-card" ${borderStyle} draggable="true" data-stage-drag-name="${escapeAttr(g.name)}">
+      <div class="stage-card" ${borderStyle} draggable="true" data-stage-drag-name="${escapeAttr(slotKey(g))}">
         <span>⠿</span>
         <span class="stage-card-name">${escapeHtml(g.name)}</span>
         <div class="badge-group">
@@ -1961,7 +1961,7 @@
       const members = membersOfStage(col.id);
       const blocks = [];
       for (const g of members) {
-        const timeRange = currentPerformerTimes[g.name];
+        const timeRange = currentPerformerTimes[slotKey(g)];
         const m = timeRange && timeRange.match(/^(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
         if (!m) continue;
         const startMin = timeToMinutes(m[1]);
@@ -2015,7 +2015,7 @@
           const borderColor = col.color || 'var(--line)';
           if (g._unknown) {
             rowHtml += `
-              <td class="grid-cell${isNowRow ? ' grid-now' : ''}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(g.name)}">
+              <td class="grid-cell${isNowRow ? ' grid-now' : ''}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name unknown-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}</div>
                 <span class="unknown-tag">未登録</span>
@@ -2024,7 +2024,7 @@
             const photo = chipInfo(g.photo);
             const video = chipInfo(g.video);
             rowHtml += `
-              <td class="grid-cell${isNowRow ? ' grid-now' : ''}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(g.name)}">
+              <td class="grid-cell${isNowRow ? ' grid-now' : ''}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}</div>
                 <div class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</div>
@@ -2169,13 +2169,13 @@
       cardEl.addEventListener('dragend', () => cardEl.classList.remove('dragging'));
       cardEl.addEventListener('click', (e) => {
         if (!editMode) return;
-        const idx = currentGroups.findIndex((g) => g.name === cardEl.dataset.stageDragName);
+        const idx = currentGroups.findIndex((g) => slotKey(g) === cardEl.dataset.stageDragName);
         if (idx !== -1 && !currentGroups[idx]._unknown) openEditModal(idx);
       });
       cardEl.querySelectorAll('.badge').forEach((badgeEl) => {
         badgeEl.addEventListener('click', (e) => {
           e.stopPropagation();
-          const g = currentGroups.find((gr) => gr.name === cardEl.dataset.stageDragName);
+          const g = currentGroups.find((gr) => slotKey(gr) === cardEl.dataset.stageDragName);
           openDetailModal(g);
         });
       });
@@ -2185,13 +2185,13 @@
     resultsEl.querySelectorAll('.grid-cell[data-grid-name]').forEach((cell) => {
       cell.addEventListener('click', () => {
         if (!editMode) return;
-        const idx = currentGroups.findIndex((g) => g.name === cell.dataset.gridName);
+        const idx = currentGroups.findIndex((g) => slotKey(g) === cell.dataset.gridName);
         if (idx !== -1 && !currentGroups[idx]._unknown) openEditModal(idx);
       });
       cell.querySelectorAll('.badge').forEach((badgeEl) => {
         badgeEl.addEventListener('click', (e) => {
           e.stopPropagation();
-          const g = currentGroups.find((gr) => gr.name === cell.dataset.gridName);
+          const g = currentGroups.find((gr) => slotKey(gr) === cell.dataset.gridName);
           openDetailModal(g);
         });
       });
@@ -2520,8 +2520,21 @@
   let activeStageTabId = 'unassigned';
   let pendingStageState = null; // 履歴から呼び出した時に適用する { stages, stageAssignment }
   let stageDragName = null;
-  let currentPerformerTimes = {}; // { 出演者名: "10:00-10:25" } — タイムテーブル取り込み時のみ
+  let currentPerformerTimes = {}; // { キー: "10:00-10:25" } — タイムテーブル取り込み時のみ
   let currentTimeSlots = []; // ["10:00","10:05",...] — タイムテーブル取り込み時のみ
+
+  // ステージ割り当て・時間帯を管理する際のキーを決める。
+  // タイムテーブル取り込みでは、同じ出演者が複数のステージ・時間帯に出演する(掛け持ち)
+  // ことがあるため、名前ではなくpagePos(元データでの出現順)をキーにして区別する。
+  // これにより、掛け持ちがあっても表示名(グループ名)を書き換えずに済む。
+  // url/listモードは掛け持ちが無い前提のまま、従来通り名前をキーにする。
+  function slotKey(g) {
+    if (!g) return '';
+    if (currentTabMode === 'timetable' && g.pagePos !== undefined && g.pagePos !== null) {
+      return `pos:${g.pagePos}`;
+    }
+    return g.name;
+  }
 
   function chipInfo(value) {
     if (value === '可') return { cls: 'ok', icon: '✓', label: '可' };
@@ -2604,7 +2617,7 @@
     const links = buildGroupLinks(g);
 
     const hasDetail = showQueryNote || g.note || links.length > 0;
-    const assignedStage = currentStages.length ? stageById(currentStageAssignment[g.name]) : null;
+    const assignedStage = currentStages.length ? stageById(currentStageAssignment[slotKey(g)]) : null;
     const stageDotHtml = assignedStage
       ? `<span class="card-stage-dot" style="background:${assignedStage.color}" title="${escapeAttr(assignedStage.name)}"></span>`
       : '';
@@ -3215,7 +3228,7 @@
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', String(dragSrcIndex));
     if (stageModeActive && currentGroups[dragSrcIndex]) {
-      stageDragName = currentGroups[dragSrcIndex].name;
+      stageDragName = slotKey(currentGroups[dragSrcIndex]);
     }
   }
 
@@ -3706,14 +3719,17 @@
         }));
         const nameToId = new Map(currentStages.map((s) => [s.name, s.id]));
         currentStageAssignment = {};
-        for (const [groupName, stageName] of Object.entries(data.stageAssignment || {})) {
+        for (const [pagePos, stageName] of Object.entries(data.stageAssignment || {})) {
           const id = nameToId.get(stageName);
-          if (id) currentStageAssignment[groupName] = id;
+          if (id) currentStageAssignment[`pos:${pagePos}`] = id;
         }
       }
       activeStageTabId = currentStages[0] ? currentStages[0].id : 'unassigned';
       stageModeActive = true;
-      currentPerformerTimes = data.performerTimes || {};
+      currentPerformerTimes = {};
+      for (const [pagePos, timeRange] of Object.entries(data.performerTimes || {})) {
+        currentPerformerTimes[`pos:${pagePos}`] = timeRange;
+      }
       currentTimeSlots = data.timeSlots || [];
       if (currentTimeSlots.length) stageViewMode = 'grid';
 

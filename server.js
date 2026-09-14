@@ -1118,39 +1118,21 @@ post("/api/timetable-import", async (req, res) => {
 
     const { matched, notFound } = matchListAgainstGroups(allTokens, groups, { dedupe: false });
 
-    // 同じ出演者が複数のステージ・時間帯に出演する場合(掛け持ち)、
-    // アプリ全体がグループ名をキーにしてステージ割り当て・時間帯を管理しているため、
-    // 名前が同じままだと2回目以降が1回目を上書きしてしまう。
-    // そこで、2回目以降の表示名には出演ステージ名を付けて自動的に区別する
-    // (例: "AOAO" → 2回目は "AOAO(KIKU)")。DB照合そのものは元の名前で行っているため、
-    // レギュレーションデータの正しさには影響しない。
-    const nameOccurrence = new Map(); // 正規化名 -> 出現回数
-    const disambiguate = (item) => {
-      const norm = normalizeStr(item.name).toLowerCase();
-      const count = (nameOccurrence.get(norm) || 0) + 1;
-      nameOccurrence.set(norm, count);
-      if (count > 1) {
-        const stageName = tokenStageMap[item.pagePos];
-        item.name = stageName ? `${item.name}(${stageName})` : `${item.name}(${count})`;
-      }
-    };
-    // ページ内での出現順(pagePos)通りに処理しないと「何回目か」の判定がずれるため、並び替えてから処理する
-    [...matched, ...notFound].sort((a, b) => a.pagePos - b.pagePos).forEach(disambiguate);
-
-    // 照合結果とステージ・時間帯の対応付けは、名前の文字列一致ではなく
-    // 元のトークンの並び順(pagePos)で行う。DB照合時に表記ゆれ(スペースの有無など)を
-    // 吸収して別表記の正式名にマッチすることがあり、名前同士の再照合では取りこぼすため。
+    // 照合結果とステージ・時間帯の対応付けは、名前ではなく元のトークンの並び順(pagePos)を
+    // キーにして行う。同じ出演者が複数のステージ・時間帯に出演する(掛け持ち)場合、
+    // 名前をキーにすると2回目以降が1回目を上書きしてしまうため。
+    // 表示名(グループ名)はDBの登録名のまま変更しない。
     const stageAssignment = {};
     const performerTimes = {};
     for (const g of matched) {
       const stageName = tokenStageMap[g.pagePos];
-      if (stageName) stageAssignment[g.name] = stageName;
-      if (tokenTimeMap[g.pagePos]) performerTimes[g.name] = tokenTimeMap[g.pagePos];
+      if (stageName) stageAssignment[g.pagePos] = stageName;
+      if (tokenTimeMap[g.pagePos]) performerTimes[g.pagePos] = tokenTimeMap[g.pagePos];
     }
     for (const n of notFound) {
       const stageName = tokenStageMap[n.pagePos];
-      if (stageName) stageAssignment[n.name] = stageName;
-      if (tokenTimeMap[n.pagePos]) performerTimes[n.name] = tokenTimeMap[n.pagePos];
+      if (stageName) stageAssignment[n.pagePos] = stageName;
+      if (tokenTimeMap[n.pagePos]) performerTimes[n.pagePos] = tokenTimeMap[n.pagePos];
     }
 
     res.json({
