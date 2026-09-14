@@ -995,20 +995,38 @@ post("/api/timetable-import", async (req, res) => {
       return res.status(400).json({ ok: false, error: "スプレッドシートのURLを入力してください" });
     }
 
-    const idMatch = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
-    if (!idMatch) {
-      return res.status(400).json({ ok: false, error: "GoogleスプレッドシートのURLではないようです" });
-    }
-    const sheetId = idMatch[1];
+    // 通常の共有URL(/spreadsheets/d/{id}/...)と、
+    // 「ウェブに公開」で発行されるURL(/spreadsheets/d/e/{publishedId}/pub...)の両方に対応。
+    // 後者を使えば、共有リンクは「編集者」のまま他社と共有しつつ、
+    // アプリの読み込み専用には別の安定した公開URLを使う、という両立ができる。
+    const publishedMatch = url.match(/\/spreadsheets\/d\/e\/([a-zA-Z0-9_-]+)/);
     const gidMatch = url.match(/[#&?]gid=(\d+)/);
     const gid = gidMatch ? gidMatch[1] : "0";
 
-    const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
+    let csvUrl;
+    if (publishedMatch) {
+      if (/output=csv/i.test(url)) {
+        // すでにCSV出力形式で公開されたURL(gid指定なしのことが多い)は、そのまま使う。
+        // gidを勝手に付け足すと、意図した公開タブと違うシートを指してしまう恐れがあるため。
+        csvUrl = url;
+      } else if (gidMatch) {
+        csvUrl = `https://docs.google.com/spreadsheets/d/e/${publishedMatch[1]}/pub?gid=${gid}&single=true&output=csv`;
+      } else {
+        csvUrl = `https://docs.google.com/spreadsheets/d/e/${publishedMatch[1]}/pub?output=csv`;
+      }
+    } else {
+      const idMatch = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+      if (!idMatch) {
+        return res.status(400).json({ ok: false, error: "GoogleスプレッドシートのURLではないようです" });
+      }
+      csvUrl = `https://docs.google.com/spreadsheets/d/${idMatch[1]}/export?format=csv&gid=${gid}`;
+    }
+
     const csvResp = await fetch(csvUrl);
     if (!csvResp.ok) {
       return res.status(400).json({
         ok: false,
-        error: `スプレッドシートを取得できませんでした(HTTP ${csvResp.status})。「リンクを知っている全員が閲覧可」の共有設定になっているか確認してください。`,
+        error: `スプレッドシートを取得できませんでした(HTTP ${csvResp.status})。共有リンクを「編集者」にしている場合は、代わりに「ファイル→共有→ウェブに公開」で発行したURLをお試しください。`,
       });
     }
     const csvText = await csvResp.text();
