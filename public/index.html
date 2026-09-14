@@ -1268,6 +1268,15 @@
     font-family: 'JetBrains Mono', monospace;
     box-sizing: border-box;
   }
+  /* 画像化(html2canvas)はposition: stickyを正しく扱えず、時間列などの位置がずれるため、
+     エクスポート時は通常の配置に戻す(スクロールしない静止画なのでstickyは不要) */
+  .export-wrap .grid-head-time,
+  .export-wrap .grid-head-stage,
+  .export-wrap .grid-time-col {
+    position: static;
+    left: auto;
+    top: auto;
+  }
   .export-event {
     display: flex;
     align-items: center;
