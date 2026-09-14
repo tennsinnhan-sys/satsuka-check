@@ -376,12 +376,16 @@ function matchListAgainstGroups(tokens, groups) {
     }
   });
 
-  // 重複除去(同名グループが複数レコードある場合は最初の1件を採用)
+  // 重複除去(元の入力に同じ名前が複数回出てきた場合のみ、最初の1件を採用)。
+  // 判定はDB照合先の名前(r.name)ではなく元の入力トークン(r.query)で行う。
+  // 表記ゆれ許容の部分一致(fuzzyマッチ)により、別々の出演者がたまたま同じDBレコードに
+  // 一致することがあり、r.nameで判定すると別人なのに片方が消えてしまうため。
   const seen = new Set();
   const unique = [];
   for (const r of results) {
-    if (!seen.has(r.name)) {
-      seen.add(r.name);
+    const tokenKey = normalizeStr(r.query).toLowerCase();
+    if (!seen.has(tokenKey)) {
+      seen.add(tokenKey);
       unique.push(r);
     }
   }
