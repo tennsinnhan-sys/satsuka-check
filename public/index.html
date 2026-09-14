@@ -1997,7 +1997,17 @@
     `;
   }
 
+  let stageTabsScrollLeft = 0;
+
   function attachStageResultsEvents() {
+    const stageTabsEl = resultsEl.querySelector('.stage-tabs');
+    if (stageTabsEl) {
+      stageTabsEl.scrollLeft = stageTabsScrollLeft; // 再描画前のスクロール位置を復元
+      stageTabsEl.addEventListener('scroll', () => {
+        stageTabsScrollLeft = stageTabsEl.scrollLeft;
+      });
+    }
+
     resultsEl.querySelectorAll('.stage-color-input[data-color-stage]').forEach((input) => {
       input.addEventListener('click', (e) => e.stopPropagation());
       input.addEventListener('input', (e) => e.stopPropagation());
@@ -3154,6 +3164,7 @@
       currentStageAssignment = {};
     }
     activeStageTabId = 'unassigned';
+    stageTabsScrollLeft = 0;
     // url/listモードにはシート由来の時間情報が無いのでグリッド表示は使わない
     currentPerformerTimes = {};
     currentTimeSlots = [];
