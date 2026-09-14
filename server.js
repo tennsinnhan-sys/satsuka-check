@@ -189,7 +189,14 @@ async function getGroups(forceRefresh = false) {
 // ---- グループ名リスト照合用のヘルパー ----
 
 function normalizeStr(s) {
-  return (s || "").normalize("NFKC").trim();
+  return (s || "")
+    .normalize("NFKC")
+    // カーブクォート(スマートクォート)をストレートクォートに統一。
+    // NotionやWord等で自動置換されがちな "'" "'" "“" "”" は、
+    // NFKC正規化では素の ' " に変換されないため、ここで個別に吸収する。
+    .replace(/[\u2018\u2019\u201B\u2032]/g, "'")
+    .replace(/[\u201C\u201D\u201F\u2033]/g, '"')
+    .trim();
 }
 
 // 改行、スラッシュ(前後スペース有無どちらも)、「、」「・」で分割する
