@@ -2014,9 +2014,12 @@
         if (startingBlock) {
           const g = startingBlock.group;
           const borderColor = col.color || 'var(--line)';
+          // 出演枠は複数行(rowspan)にまたがるので、枠の開始行だけでなく
+          // 「出演時間の範囲内に現在時刻が含まれているか」で判定する
+          const blockIsNow = nowRowIndex >= startingBlock.startIdx && nowRowIndex < startingBlock.startIdx + startingBlock.span;
           if (g._unknown) {
             rowHtml += `
-              <td class="grid-cell${isNowRow ? ' grid-now' : ''}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
+              <td class="grid-cell${blockIsNow ? ' grid-now' : ''}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name unknown-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}</div>
                 <span class="unknown-tag">未登録</span>
@@ -2025,7 +2028,7 @@
             const photo = chipInfo(g.photo);
             const video = chipInfo(g.video);
             rowHtml += `
-              <td class="grid-cell${isNowRow ? ' grid-now' : ''}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
+              <td class="grid-cell${blockIsNow ? ' grid-now' : ''}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}</div>
                 <div class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</div>
