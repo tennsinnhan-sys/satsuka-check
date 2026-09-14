@@ -319,7 +319,8 @@ function findSuggestions(normToken, index, limit = 2, threshold = 0.8) {
   return result;
 }
 
-function matchListAgainstGroups(tokens, groups) {
+function matchListAgainstGroups(tokens, groups, options = {}) {
+  const dedupe = options.dedupe !== false; // 既定は従来通り重複除去あり(グループ名リスト照合用)
   const index = buildGroupIndex(groups); // ここで1回だけDBを走査
   const results = [];
   const notFound = [];
@@ -387,13 +388,18 @@ function matchListAgainstGroups(tokens, groups) {
   // 判定はDB照合先の名前(r.name)ではなく元の入力トークン(r.query)で行う。
   // 表記ゆれ許容の部分一致(fuzzyマッチ)により、別々の出演者がたまたま同じDBレコードに
   // 一致することがあり、r.nameで判定すると別人なのに片方が消えてしまうため。
-  const seen = new Set();
-  const unique = [];
-  for (const r of results) {
-    const tokenKey = normalizeStr(r.query).toLowerCase();
-    if (!seen.has(tokenKey)) {
-      seen.add(tokenKey);
-      unique.push(r);
+  // dedupe:false の場合(タイムテーブル取り込みなど)は、同じ出演者が複数の時間帯・
+  // ステージに出演することがあるため、重複除去自体を行わない。
+  let unique = results;
+  if (dedupe) {
+    const seen = new Set();
+    unique = [];
+    for (const r of results) {
+      const tokenKey = normalizeStr(r.query).toLowerCase();
+      if (!seen.has(tokenKey)) {
+        seen.add(tokenKey);
+        unique.push(r);
+      }
     }
   }
 
@@ -1029,7 +1035,26 @@ post("/api/timetable-import", async (req, res) => {
       }
     }
 
-    const { matched, notFound } = matchListAgainstGroups(allTokens, groups);
+    const { matched, notFound } = matchListAgainstGroups(allTokens, groups, { dedupe: false });
+
+    // 同じ出演者が複数のステージ・時間帯に出演する場合(掛け持ち)、
+    // アプリ全体がグループ名をキーにしてステージ割り当て・時間帯を管理しているため、
+    // 名前が同じままだと2回目以降が1回目を上書きしてしまう。
+    // そこで、2回目以降の表示名には出演ステージ名を付けて自動的に区別する
+    // (例: "AOAO" → 2回目は "AOAO(KIKU)")。DB照合そのものは元の名前で行っているため、
+    // レギュレーションデータの正しさには影響しない。
+    const nameOccurrence = new Map(); // 正規化名 -> 出現回数
+    const disambiguate = (item) => {
+      const norm = normalizeStr(item.name).toLowerCase();
+      const count = (nameOccurrence.get(norm) || 0) + 1;
+      nameOccurrence.set(norm, count);
+      if (count > 1) {
+        const stageName = tokenStageMap[item.pagePos];
+        item.name = stageName ? `${item.name}(${stageName})` : `${item.name}(${count})`;
+      }
+    };
+    // ページ内での出現順(pagePos)通りに処理しないと「何回目か」の判定がずれるため、並び替えてから処理する
+    [...matched, ...notFound].sort((a, b) => a.pagePos - b.pagePos).forEach(disambiguate);
 
     // 照合結果とステージ・時間帯の対応付けは、名前の文字列一致ではなく
     // 元のトークンの並び順(pagePos)で行う。DB照合時に表記ゆれ(スペースの有無など)を
