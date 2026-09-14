@@ -2500,7 +2500,7 @@
     if (isUrl(g.xLink)) {
       links.push({ href: g.xLink, label: '𝕏 公式' });
     } else {
-      links.push({ href: `https://www.google.com/search?q=${encodeURIComponent(g.name)}`, label: 'Google検索' });
+      links.push({ href: `https://www.google.com/search?q=${encodeURIComponent(`${g.name} site:x.com`)}`, label: '𝕏を検索' });
     }
     if (isUrl(g.source1)) links.push({ href: g.source1, label: 'ソース1' });
     if (isUrl(g.source2)) links.push({ href: g.source2, label: 'ソース2' });
