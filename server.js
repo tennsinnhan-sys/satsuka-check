@@ -1085,11 +1085,16 @@ post("/api/timetable-import", async (req, res) => {
       csvUrl = `https://docs.google.com/spreadsheets/d/${idMatch[1]}/export?format=csv&gid=${gid}`;
     }
 
-    const csvResp = await fetch(csvUrl);
+    const csvResp = await fetch(csvUrl, {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      },
+    });
     if (!csvResp.ok) {
       return res.status(400).json({
         ok: false,
-        error: `スプレッドシートを取得できませんでした(HTTP ${csvResp.status})。共有リンクを「編集者」にしている場合は、代わりに「ファイル→共有→ウェブに公開」で発行したURLをお試しください。`,
+        error: `スプレッドシートを取得できませんでした(HTTP ${csvResp.status})。共有設定が「リンクを知っている全員が閲覧可」になっているか、URLに正しいシートのgidが含まれているかを確認してください。共有リンクを「編集者」にしている場合は、代わりに「ファイル→共有→ウェブに公開」で発行したURLもお試しください。`,
       });
     }
     const csvText = await csvResp.text();
