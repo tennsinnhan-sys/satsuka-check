@@ -606,6 +606,29 @@
     font-size: 10px;
     color: var(--ink-dim);
   }
+  .grid-note-marker {
+    font-size: 9px;
+    color: var(--maybe);
+    margin-left: 3px;
+  }
+  .export-footnotes {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line);
+  }
+  .export-footnotes-title {
+    font-weight: 700;
+    font-size: 11px;
+    color: var(--ink);
+    margin-bottom: 6px;
+  }
+  .export-footnote-item {
+    font-size: 10px;
+    color: var(--ink-dim);
+    line-height: 1.6;
+    overflow-wrap: break-word;
+    word-break: break-all;
+  }
 
   /* 通常のカードに表示するステージ色バッジ */
   .card-stage-dot {
@@ -2838,12 +2861,9 @@
 
     const TIME_COL_WIDTH = 50;
     const STAGE_COL_WIDTH = 150;
-    const NOTE_MAX_LEN = 34; // URLなど区切りの無い長い備考が列を押し広げないよう、画像用に切り詰める
+    const NOTE_INLINE_MAX_LEN = 20; // これ以下の文字数ならセル内にそのまま表示する
 
-    const truncateNote = (text) => {
-      const s = String(text || '');
-      return s.length > NOTE_MAX_LEN ? `${s.slice(0, NOTE_MAX_LEN)}…` : s;
-    };
+    const footnotes = []; // 長い備考はここに集め、画像下部にまとめて表示する
 
     const colgroupHtml = `
       <colgroup>
@@ -2882,12 +2902,24 @@
           } else {
             const photo = chipInfo(g.photo);
             const video = chipInfo(g.video);
+            // 短い備考はそのままセル内に表示。長い備考はセルの高さがバラつく原因になるので、
+            // 印(📝連番)だけをセルに残し、全文は画像下部の備考一覧にまとめる。
+            let noteMarkerHtml = '';
+            let inlineNoteHtml = '';
+            if (g.note) {
+              if (g.note.length <= NOTE_INLINE_MAX_LEN) {
+                inlineNoteHtml = `<div class="export-note">${escapeHtml(g.note)}</div>`;
+              } else {
+                footnotes.push({ name: g.name, note: g.note });
+                noteMarkerHtml = `<span class="grid-note-marker">📝${footnotes.length}</span>`;
+              }
+            }
             rowHtml += `
               <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
-                <div class="grid-cell-name">${escapeHtml(g.name)}</div>
+                <div class="grid-cell-name">${escapeHtml(g.name)}${noteMarkerHtml}</div>
                 <div class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</div>
-                ${g.note ? `<div class="export-note">${escapeHtml(truncateNote(g.note))}</div>` : ''}
+                ${inlineNoteHtml}
               </td>`;
           }
           return;
@@ -2899,6 +2931,15 @@
       rowsHtml += `<tr>${rowHtml}</tr>`;
     }
 
+    const footnotesHtml = footnotes.length
+      ? `
+        <div class="export-footnotes">
+          <div class="export-footnotes-title">※備考</div>
+          ${footnotes.map((f, i) => `<div class="export-footnote-item">${i + 1}. ${escapeHtml(f.name)}: ${escapeHtml(f.note)}</div>`).join('')}
+        </div>
+      `
+      : '';
+
     return {
       html: `
         ${eventHtml}
@@ -2908,7 +2949,7 @@
           <thead>${headHtml}</thead>
           <tbody>${rowsHtml}</tbody>
         </table>
-        <div class="export-credit">撮可チェック — satsuka-check</div>
+        ${footnotesHtml}        <div class="export-credit">撮可チェック — satsuka-check</div>
       `,
       width: TIME_COL_WIDTH + columns.length * STAGE_COL_WIDTH + 40, // +40はexport-wrapの左右padding分
     };
