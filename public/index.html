@@ -3461,7 +3461,25 @@
 
     const searchInput = document.getElementById('groupSearchInput');
     if (searchInput) {
+      let isComposing = false;
+      searchInput.addEventListener('compositionstart', () => {
+        isComposing = true;
+      });
+      searchInput.addEventListener('compositionend', (e) => {
+        isComposing = false;
+        searchQuery = e.target.value;
+        const cursorPos = e.target.selectionStart;
+        draw();
+        const newInput = document.getElementById('groupSearchInput');
+        if (newInput) {
+          newInput.focus();
+          newInput.setSelectionRange(cursorPos, cursorPos);
+        }
+      });
       searchInput.addEventListener('input', (e) => {
+        // IME変換中(ローマ字→かな確定前など)に再描画するとinput要素が作り直され、
+        // 変換が中断されて文字化けのようになるため、変換確定後(compositionend)まで待つ
+        if (isComposing) return;
         searchQuery = e.target.value;
         const cursorPos = e.target.selectionStart;
         draw();
