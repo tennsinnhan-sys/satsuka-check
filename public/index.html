@@ -907,6 +907,16 @@
     border-color: var(--ok);
     color: var(--ok);
   }
+  .shared-view-badge {
+    background: rgba(91,107,140,0.10);
+    border: 1px solid var(--flash);
+    color: var(--flash);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 999px;
+  }
   .result-head .page-title {
     color: var(--ink-dim);
     font-size: 13px;
@@ -1011,6 +1021,60 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 6px;
+  }
+  .share-loading {
+    padding: 30px 0;
+    text-align: center;
+    color: var(--ink-dim);
+    font-size: 12.5px;
+  }
+  .share-qr-wrap {
+    display: flex;
+    justify-content: center;
+    background: #ffffff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .share-url-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .share-url-row input {
+    flex: 1;
+    background: var(--stage-deep);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--ink);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    min-width: 0;
+  }
+  .share-url-row button {
+    background: var(--flash);
+    color: var(--flash-ink);
+    border: none;
+    border-radius: 8px;
+    padding: 0 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 12px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .share-hint {
+    font-size: 11px;
+    color: var(--ink-dim);
+    line-height: 1.6;
+  }
+  .share-error {
+    color: var(--ng);
+    font-size: 12.5px;
+    text-align: center;
+    padding: 20px 0;
   }
   .modal-header .name {
     font-family: 'JetBrains Mono', monospace;
@@ -1604,10 +1668,23 @@
       </div>
     </div>
 
+    <div class="modal-overlay" id="shareModal">
+      <div class="modal-box">
+        <div class="modal-header">
+          <span class="name">この照合結果を共有</span>
+          <button type="button" class="modal-close" id="shareModalClose" aria-label="閉じる">✕</button>
+        </div>
+        <div id="shareModalBody">
+          <div class="share-loading">共有リンクを作成しています…</div>
+        </div>
+      </div>
+    </div>
+
     <footer>グループ名がページ本文にそのまま含まれるかで判定する簡易照合です。表記ゆれ等で漏れる場合があります。最終確認は各グループの公式Xで。<br>一度オンラインで開いておくと、グループ名リスト照合はオフラインでも利用できます(端末にDBを保存)。</footer>
   </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
   const form = document.getElementById('lookupForm');
   const urlInput = document.getElementById('urlInput');
@@ -1643,6 +1720,10 @@
   const detailModalName = document.getElementById('detailModalName');
   const detailModalBody = document.getElementById('detailModalBody');
   const detailModalClose = document.getElementById('detailModalClose');
+
+  const shareModal = document.getElementById('shareModal');
+  const shareModalBody = document.getElementById('shareModalBody');
+  const shareModalClose = document.getElementById('shareModalClose');
 
   // ---- テーマ切り替え(昼 → 夜 → 端末に依存 → 昼 の順に切り替わる) ----
   const THEME_KEY = 'satsuka_check_theme_v1';
@@ -2010,6 +2091,7 @@
   }
 
   function assignToStage(name, stageId) {
+    if (isSharedView) return; // 共有リンクの閲覧時は変更不可
     if (stageId === 'unassigned') {
       delete currentStageAssignment[name];
     } else {
@@ -2020,6 +2102,7 @@
   }
 
   function reorderWithinCurrentGroups(draggedKey, targetKey) {
+    if (isSharedView) return; // 共有リンクの閲覧時は変更不可
     if (draggedKey === targetKey) return;
     const srcIdx = currentGroups.findIndex((g) => slotKey(g) === draggedKey);
     if (srcIdx === -1) return;
@@ -2713,6 +2796,7 @@
   let stageDragName = null;
   let currentPerformerTimes = {}; // { キー: "10:00-10:25" } — タイムテーブル取り込み時のみ
   let currentTimeSlots = []; // ["10:00","10:05",...] — タイムテーブル取り込み時のみ
+  let isSharedView = false; // 共有リンクから開いた閲覧専用ビューかどうか
 
   // ステージ割り当て・時間帯を管理する際のキーを決める。
   // タイムテーブル取り込みでは、同じ出演者が複数のステージ・時間帯に出演する(掛け持ち)
@@ -3251,20 +3335,25 @@
       <div class="result-head">
         <div class="result-head-title">
           <h2>照合結果 (${matchedCount})${unknownInlineCount > 0 ? ` <span class="page-title">+ 未登録${unknownInlineCount}件</span>` : ''}</h2>
-          <button type="button" class="stage-toggle-btn${stageModeActive ? ' active' : ''}" id="stageToggle">複数ステージ</button>
-          <button type="button" class="ok-filter-btn${filterPhotoOkOnly ? ' active' : ''}" id="filterPhotoBtn">📷可のみ</button>
-          <button type="button" class="ok-filter-btn${filterVideoOkOnly ? ' active' : ''}" id="filterVideoBtn">🎥可のみ</button>
+          ${isSharedView ? '<span class="shared-view-badge">👁 共有リンクを閲覧中</span>' : `
+            <button type="button" class="stage-toggle-btn${stageModeActive ? ' active' : ''}" id="stageToggle">複数ステージ</button>
+            <button type="button" class="ok-filter-btn${filterPhotoOkOnly ? ' active' : ''}" id="filterPhotoBtn">📷可のみ</button>
+            <button type="button" class="ok-filter-btn${filterVideoOkOnly ? ' active' : ''}" id="filterVideoBtn">🎥可のみ</button>
+          `}
         </div>
         <div class="result-head-controls">
           <button type="button" class="export-btn" id="exportImageBtn">画像で保存</button>
+          ${isSharedView ? '' : '<button type="button" class="export-btn" id="shareBtn">共有</button>'}
           ${showClearAll ? '<span class="clear-all-link" id="clearAllEdits">このURLの編集を全消去</span>' : ''}
-          <div class="edit-toggle-wrap" id="editModeToggle">
-            <span>編集モード</span>
-            <div class="edit-toggle${editMode ? ' on' : ''}"><div class="knob"></div></div>
-          </div>
+          ${isSharedView ? '' : `
+            <div class="edit-toggle-wrap" id="editModeToggle">
+              <span>編集モード</span>
+              <div class="edit-toggle${editMode ? ' on' : ''}"><div class="knob"></div></div>
+            </div>
+          `}
         </div>
       </div>
-      ${currentGroups.length > 1 ? `<div class="reorder-hint">${editMode ? '編集モード: 行をタップしてこの場限定のレギュを入力' : '⠿ をドラッグしてタイムテーブル順に並べ替え、行をタップで詳細表示'}</div>` : ''}
+      ${!isSharedView && currentGroups.length > 1 ? `<div class="reorder-hint">${editMode ? '編集モード: 行をタップしてこの場限定のレギュを入力' : '⠿ をドラッグしてタイムテーブル順に並べ替え、行をタップで詳細表示'}</div>` : ''}
     `;
 
     const colHeaders = matchedCount > 0 && !stageModeActive
@@ -3287,6 +3376,11 @@
     const exportBtn = document.getElementById('exportImageBtn');
     if (exportBtn) {
       exportBtn.addEventListener('click', exportAsImage);
+    }
+
+    const shareBtn = document.getElementById('shareBtn');
+    if (shareBtn) {
+      shareBtn.addEventListener('click', openShareModal);
     }
 
     const stageToggleEl = document.getElementById('stageToggle');
@@ -3480,6 +3574,7 @@
   function onDrop(e) {
     e.preventDefault();
     e.currentTarget.classList.remove('drag-over');
+    if (isSharedView) return; // 共有リンクの閲覧時は変更不可
     const targetIndex = Number(e.currentTarget.dataset.index);
     if (dragSrcIndex === null || dragSrcIndex === targetIndex) return;
     const [moved] = currentGroups.splice(dragSrcIndex, 1);
@@ -3686,6 +3781,74 @@
   detailModalClose.addEventListener('click', closeDetailModal);
   detailModal.addEventListener('click', (e) => {
     if (e.target === detailModal) closeDetailModal();
+  });
+
+  // 今の照合結果(並び順・ステージ構成・この場限定の編集を含む)をサーバーに保存し、
+  // 短いIDのURL+QRコードで共有できるようにする。相手側は閲覧専用で開く。
+  async function openShareModal() {
+    shareModal.classList.add('show');
+    shareModalBody.innerHTML = '<div class="share-loading">共有リンクを作成しています…</div>';
+
+    const snapshot = {
+      groups: currentGroups,
+      stages: currentStages,
+      stageAssignment: currentStageAssignment,
+      performerTimes: currentPerformerTimes,
+      timeSlots: currentTimeSlots,
+      eventTitle: currentEventInfo ? currentEventInfo.title : '',
+      stageModeActive,
+      stageViewMode,
+    };
+
+    try {
+      const res = await fetch('/api/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(snapshot),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        shareModalBody.innerHTML = `<div class="share-error">${escapeHtml(data.error || '共有リンクの作成に失敗しました')}</div>`;
+        return;
+      }
+      const shareUrl = `${location.origin}${location.pathname}?share=${data.id}`;
+      shareModalBody.innerHTML = `
+        <div class="share-qr-wrap" id="shareQrWrap"></div>
+        <div class="share-url-row">
+          <input type="text" id="shareUrlInput" value="${escapeAttr(shareUrl)}" readonly />
+          <button type="button" id="shareCopyBtn">コピー</button>
+        </div>
+        <div class="share-hint">このリンクを開いた相手は閲覧専用です(編集モードや振り分けの変更はできません)。30日間有効です。</div>
+      `;
+      if (typeof QRCode !== 'undefined') {
+        new QRCode(document.getElementById('shareQrWrap'), {
+          text: shareUrl,
+          width: 180,
+          height: 180,
+        });
+      }
+      const copyBtn = document.getElementById('shareCopyBtn');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', () => {
+          const input = document.getElementById('shareUrlInput');
+          input.select();
+          navigator.clipboard && navigator.clipboard.writeText(shareUrl).catch(() => {});
+          copyBtn.textContent = 'コピー済';
+          setTimeout(() => { copyBtn.textContent = 'コピー'; }, 1500);
+        });
+      }
+    } catch (e) {
+      shareModalBody.innerHTML = '<div class="share-error">通信エラーで共有リンクを作成できませんでした。オンラインの状態でお試しください。</div>';
+    }
+  }
+
+  function closeShareModal() {
+    shareModal.classList.remove('show');
+  }
+
+  shareModalClose.addEventListener('click', closeShareModal);
+  shareModal.addEventListener('click', (e) => {
+    if (e.target === shareModal) closeShareModal();
   });
 
   function escapeHtml(str) {
@@ -4020,7 +4183,48 @@
 
   updateOnlineStatus();
   updateCacheNote();
-  runRefresh();
+
+  // ---- 共有リンク(?share=ID)から開かれた場合は、閲覧専用ビューとして復元する ----
+  async function loadSharedViewIfPresent() {
+    const shareId = new URLSearchParams(location.search).get('share');
+    if (!shareId) return false;
+
+    statusEl.className = '';
+    statusEl.textContent = '共有された照合結果を読み込んでいます…';
+    try {
+      const res = await fetch(`/api/share?id=${encodeURIComponent(shareId)}`);
+      const data = await res.json();
+      if (!data.ok) {
+        statusEl.className = 'error';
+        statusEl.textContent = data.error || '共有リンクを読み込めませんでした';
+        return true;
+      }
+      const s = data.snapshot;
+      isSharedView = true;
+      currentGroups = s.groups || [];
+      currentStages = s.stages || [];
+      currentStageAssignment = s.stageAssignment || {};
+      currentPerformerTimes = s.performerTimes || {};
+      currentTimeSlots = s.timeSlots || [];
+      currentEventInfo = s.eventTitle ? { title: s.eventTitle } : null;
+      stageModeActive = !!s.stageModeActive;
+      stageViewMode = s.stageViewMode || 'tabs';
+      activeStageTabId = currentStages[0] ? currentStages[0].id : 'unassigned';
+      currentNotFound = [];
+      currentUnknownOnPage = currentGroups.filter((g) => g._unknown).map((g) => g.name);
+      currentTabMode = 'timetable'; // slotKeyの判定に必要(タイムテーブル取り込み以外の共有でも位置ベースキーで問題ない)
+      statusEl.textContent = '';
+      draw();
+    } catch (e) {
+      statusEl.className = 'error';
+      statusEl.textContent = '共有リンクの読み込みに失敗しました(オフライン、またはリンクをご確認ください)';
+    }
+    return true;
+  }
+
+  loadSharedViewIfPresent().then((wasShared) => {
+    if (!wasShared) runRefresh();
+  });
 </script>
 </body>
 </html>

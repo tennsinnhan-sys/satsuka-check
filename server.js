@@ -493,6 +493,60 @@ post("/api/register-groups", async (req, res) => {
   }
 });
 
+// ---- 共有リンク(今見ている照合結果のスナップショットを保存し、短いIDで参照できるようにする) ----
+// 専用KVは用意せず、既存のHISTORY_KVをキー接頭辞("share:")で使い回す。30日で自動的に失効する。
+const SHARE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30日
+
+function generateShareId() {
+  const chars = "abcdefghijkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789"; // 紛らわしい文字(0/O/l/1等)は除く
+  let id = "";
+  for (let i = 0; i < 8; i++) {
+    id += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return id;
+}
+
+post("/api/share", async (req, res, env) => {
+  try {
+    if (!env.HISTORY_KV) {
+      return res.status(500).json({ ok: false, error: "共有機能が利用できません(KVが未設定です)" });
+    }
+    const snapshot = req.body || {};
+    if (!snapshot || !Array.isArray(snapshot.groups)) {
+      return res.status(400).json({ ok: false, error: "共有するデータがありません" });
+    }
+    const id = generateShareId();
+    await env.HISTORY_KV.put(`share:${id}`, JSON.stringify({ ...snapshot, sharedAt: Date.now() }), {
+      expirationTtl: SHARE_TTL_SECONDS,
+    });
+    res.json({ ok: true, id });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+get("/api/share", async (req, res, env) => {
+  try {
+    if (!env.HISTORY_KV) {
+      return res.status(500).json({ ok: false, error: "共有機能が利用できません(KVが未設定です)" });
+    }
+    const id = (req.query && req.query.id) || "";
+    if (!id) {
+      return res.status(400).json({ ok: false, error: "共有IDが指定されていません" });
+    }
+    const raw = await env.HISTORY_KV.get(`share:${id}`);
+    if (!raw) {
+      return res.status(404).json({ ok: false, error: "この共有リンクは見つかりませんでした(期限切れの可能性があります)" });
+    }
+    res.json({ ok: true, snapshot: JSON.parse(raw) });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+
 // ---- 検索履歴API(サーバー側=Cloudflare KVに保存。全端末で共通) ----
 get("/api/history", async (req, res, env) => {
   try {
@@ -1251,7 +1305,12 @@ export default {
         body = {};
       }
     }
-    const req = { body, headers: Object.fromEntries(request.headers), method: request.method };
+    const req = {
+      body,
+      headers: Object.fromEntries(request.headers),
+      method: request.method,
+      query: Object.fromEntries(url.searchParams),
+    };
     const { res, promise } = createRes();
     route.handler(req, res, env);
     return promise;
