@@ -1174,6 +1174,38 @@
     margin: -4px 2px 14px;
   }
 
+  .search-box {
+    position: relative;
+    margin: 0 2px 14px;
+  }
+  .search-box input {
+    width: 100%;
+    background: var(--stage-deep);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 9px 34px 9px 12px;
+    color: var(--ink);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    outline: none;
+    box-sizing: border-box;
+  }
+  .search-box input::placeholder { color: var(--muted); }
+  .search-box input:focus { border-color: var(--flash); }
+  .search-box button {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 4px;
+  }
+  .search-box button:hover { color: var(--ng); }
+
   .cards {
     display: flex;
     flex-direction: column;
@@ -2057,6 +2089,16 @@
   let filterPhotoOkOnly = false;
   let filterVideoOkOnly = false;
 
+  // ---- グループ名検索 ----
+  let searchQuery = '';
+
+  function matchesSearch(g) {
+    if (!searchQuery) return true;
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return String(g.name || '').toLowerCase().includes(q);
+  }
+
   // 不可(✕)のため一覧から除外すべきかどうか。未登録は常に表示する。
   function failsOkFilter(g) {
     if (!g || g._unknown) return false;
@@ -2065,9 +2107,14 @@
     return false;
   }
 
-  // タブ/横並び表示用: フィルタで除外されるものは一覧から取り除く
+  // 撮影可フィルタ・検索、どちらかに引っかかったら一覧から除外(非表示/半透明)する対象かどうか
+  function isHiddenFromView(g) {
+    return failsOkFilter(g) || !matchesSearch(g);
+  }
+
+  // タブ/横並び表示用: フィルタ・検索で除外されるものは一覧から取り除く
   function visibleMembersOfStage(stageId) {
-    return membersOfStage(stageId).filter((g) => !failsOkFilter(g));
+    return membersOfStage(stageId).filter((g) => !isHiddenFromView(g));
   }
 
   function addStage(name) {
@@ -2296,7 +2343,7 @@
           } else {
             const photo = chipInfo(g.photo);
             const video = chipInfo(g.video);
-            const dimClass = failsOkFilter(g) ? ' grid-dim' : '';
+            const dimClass = isHiddenFromView(g) ? ' grid-dim' : '';
             rowHtml += `
               <td class="grid-cell${blockIsNow ? ' grid-now' : ''}${dimClass}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
@@ -3354,6 +3401,12 @@
         </div>
       </div>
       ${!isSharedView && currentGroups.length > 1 ? `<div class="reorder-hint">${editMode ? '編集モード: 行をタップしてこの場限定のレギュを入力' : '⠿ をドラッグしてタイムテーブル順に並べ替え、行をタップで詳細表示'}</div>` : ''}
+      ${!isSharedView && currentGroups.length > 1 ? `
+        <div class="search-box">
+          <input type="text" id="groupSearchInput" placeholder="グループ名で検索" value="${escapeAttr(searchQuery)}" />
+          ${searchQuery ? '<button type="button" id="groupSearchClear" aria-label="検索をクリア">✕</button>' : ''}
+        </div>
+      ` : ''}
     `;
 
     const colHeaders = matchedCount > 0 && !stageModeActive
@@ -3362,7 +3415,7 @@
 
     const visibleFlatGroups = currentGroups
       .map((g, i) => ({ g, i }))
-      .filter(({ g }) => !failsOkFilter(g));
+      .filter(({ g }) => !isHiddenFromView(g));
     const cardsOrStageSection = stageModeActive
       ? renderStageResultsSection()
       : (visibleFlatGroups.length
@@ -3402,6 +3455,28 @@
     if (filterVideoBtn) {
       filterVideoBtn.addEventListener('click', () => {
         filterVideoOkOnly = !filterVideoOkOnly;
+        draw();
+      });
+    }
+
+    const searchInput = document.getElementById('groupSearchInput');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        searchQuery = e.target.value;
+        const cursorPos = e.target.selectionStart;
+        draw();
+        // draw()でinput要素ごと作り直されるので、フォーカスとカーソル位置を復元する
+        const newInput = document.getElementById('groupSearchInput');
+        if (newInput) {
+          newInput.focus();
+          newInput.setSelectionRange(cursorPos, cursorPos);
+        }
+      });
+    }
+    const searchClearBtn = document.getElementById('groupSearchClear');
+    if (searchClearBtn) {
+      searchClearBtn.addEventListener('click', () => {
+        searchQuery = '';
         draw();
       });
     }
