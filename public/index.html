@@ -2387,6 +2387,8 @@
   }
 
   let stageTabsScrollLeft = 0;
+  let gridScrollLeft = 0;
+  let gridScrollTop = 0;
 
   function attachStageResultsEvents() {
     const stageTabsEl = resultsEl.querySelector('.stage-tabs');
@@ -2394,6 +2396,16 @@
       stageTabsEl.scrollLeft = stageTabsScrollLeft; // 再描画前のスクロール位置を復元
       stageTabsEl.addEventListener('scroll', () => {
         stageTabsScrollLeft = stageTabsEl.scrollLeft;
+      });
+    }
+
+    const gridScrollEl = resultsEl.querySelector('.grid-scroll');
+    if (gridScrollEl) {
+      gridScrollEl.scrollLeft = gridScrollLeft; // 再描画前のスクロール位置を復元(横)
+      gridScrollEl.scrollTop = gridScrollTop; // 再描画前のスクロール位置を復元(縦)
+      gridScrollEl.addEventListener('scroll', () => {
+        gridScrollLeft = gridScrollEl.scrollLeft;
+        gridScrollTop = gridScrollEl.scrollTop;
       });
     }
 
@@ -3743,6 +3755,8 @@
     }
     activeStageTabId = 'unassigned';
     stageTabsScrollLeft = 0;
+    gridScrollLeft = 0;
+    gridScrollTop = 0;
     // url/listモードにはシート由来の時間情報が無いのでグリッド表示は使わない
     currentPerformerTimes = {};
     currentTimeSlots = [];
