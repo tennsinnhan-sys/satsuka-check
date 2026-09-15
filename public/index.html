@@ -1979,7 +1979,7 @@
   // 不可(✕)のため一覧から除外すべきかどうか。未登録は常に表示する。
   function failsOkFilter(g) {
     if (!g || g._unknown) return false;
-    if (filterPhotoOkOnly && g.photo === '不可') return true;
+    if (filterPhotoOkOnly && (g.photo === '不可' || g.photo === 'HEROINES')) return true;
     if (filterVideoOkOnly && g.video === '不可') return true;
     return false;
   }
