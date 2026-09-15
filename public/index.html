@@ -2496,8 +2496,13 @@
       cardEl.querySelectorAll('.badge').forEach((badgeEl) => {
         badgeEl.addEventListener('click', (e) => {
           e.stopPropagation();
-          const g = currentGroups.find((gr) => slotKey(gr) === cardEl.dataset.stageDragName);
-          openDetailModal(g);
+          const idx = currentGroups.findIndex((g) => slotKey(g) === cardEl.dataset.stageDragName);
+          if (idx === -1) return;
+          if (editMode && !currentGroups[idx]._unknown) {
+            openEditModal(idx);
+          } else {
+            openDetailModal(currentGroups[idx]);
+          }
         });
       });
     });
@@ -2512,8 +2517,13 @@
       cell.querySelectorAll('.badge').forEach((badgeEl) => {
         badgeEl.addEventListener('click', (e) => {
           e.stopPropagation();
-          const g = currentGroups.find((gr) => slotKey(gr) === cell.dataset.gridName);
-          openDetailModal(g);
+          const idx = currentGroups.findIndex((g) => slotKey(g) === cell.dataset.gridName);
+          if (idx === -1) return;
+          if (editMode && !currentGroups[idx]._unknown) {
+            openEditModal(idx);
+          } else {
+            openDetailModal(currentGroups[idx]);
+          }
         });
       });
     });
