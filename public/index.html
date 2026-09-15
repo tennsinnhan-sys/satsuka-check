@@ -33,6 +33,23 @@
     --heroines: #c968a0;
     --partial: #4a7f9e;
   }
+  html[data-theme="dark"] {
+    --stage: #1c2128;
+    --stage-deep: #262c35;
+    --panel: #141821;
+    --line: #333b48;
+    --ink: #e7eaf0;
+    --ink-dim: #9aa6bd;
+    --muted: #6b7488;
+    --flash: #7f92c2;
+    --flash-ink: #10131a;
+    --edited: #e0ac52;
+    --ok: #6cbf93;
+    --ng: #dd8285;
+    --maybe: #e5b45f;
+    --heroines: #e595c0;
+    --partial: #74a9c9;
+  }
 
   * { box-sizing: border-box; }
 
@@ -112,6 +129,25 @@
     margin-top: 3px;
   }
 
+  .header-right {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .theme-toggle-btn {
+    background: var(--stage);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    width: 34px;
+    height: 34px;
+    font-size: 15px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .theme-toggle-btn:hover { border-color: var(--flash); }
   .db-badge {
     font-family: 'JetBrains Mono', monospace;
     font-size: 12px;
@@ -576,6 +612,9 @@
     background: rgba(46,91,255,0.08);
     box-shadow: inset 0 2px 0 #2e5bff, inset 0 -2px 0 #2e5bff;
   }
+  td.grid-cell.grid-dim {
+    opacity: 0.35;
+  }
   .grid-cell-time {
     font-size: 9.5px;
     color: var(--ink-dim);
@@ -850,6 +889,23 @@
     background: rgba(91,107,140,0.10);
     border-color: var(--flash);
     color: var(--flash);
+  }
+  .ok-filter-btn {
+    background: none;
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .ok-filter-btn:hover { border-color: var(--ok); color: var(--ok); }
+  .ok-filter-btn.active {
+    background: rgba(74,143,107,0.12);
+    border-color: var(--ok);
+    color: var(--ok);
   }
   .result-head .page-title {
     color: var(--ink-dim);
@@ -1458,10 +1514,13 @@
           </div>
         </div>
       </div>
-      <div class="db-badge">
-        DB件数: <span id="dbCount">—</span> 件
-        <button id="refreshBtn" type="button">DBを再取得</button>
-        <span class="cache-note" id="cacheNote"></span>
+      <div class="header-right">
+        <button type="button" class="theme-toggle-btn" id="themeToggleBtn" title="テーマ切り替え">☀️</button>
+        <div class="db-badge">
+          DB件数: <span id="dbCount">—</span> 件
+          <button id="refreshBtn" type="button">DBを再取得</button>
+          <span class="cache-note" id="cacheNote"></span>
+        </div>
       </div>
     </header>
 
@@ -1585,6 +1644,39 @@
   const detailModalBody = document.getElementById('detailModalBody');
   const detailModalClose = document.getElementById('detailModalClose');
 
+  // ---- テーマ切り替え(昼 → 夜 → 端末に依存 → 昼 の順に切り替わる) ----
+  const THEME_KEY = 'satsuka_check_theme_v1';
+  const THEME_ORDER = ['light', 'dark', 'system'];
+  const THEME_ICON = { light: '☀️', dark: '🌙', system: '💻' };
+  const themeToggleBtn = document.getElementById('themeToggleBtn');
+  let themeMode = localStorage.getItem(THEME_KEY) || 'light';
+
+  function applyTheme() {
+    const effective = themeMode === 'system'
+      ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : themeMode;
+    document.documentElement.dataset.theme = effective;
+    if (themeToggleBtn) {
+      themeToggleBtn.textContent = THEME_ICON[themeMode];
+      themeToggleBtn.title = `テーマ: ${themeMode === 'light' ? '昼' : themeMode === 'dark' ? '夜' : '端末に依存'}(タップで切り替え)`;
+    }
+  }
+
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', () => {
+      const idx = THEME_ORDER.indexOf(themeMode);
+      themeMode = THEME_ORDER[(idx + 1) % THEME_ORDER.length];
+      try { localStorage.setItem(THEME_KEY, themeMode); } catch (e) {}
+      applyTheme();
+    });
+  }
+  if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (themeMode === 'system') applyTheme();
+    });
+  }
+  applyTheme();
+
   // ---- Service Worker登録(オフラインでもアプリの画面自体は開けるようにする) ----
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
@@ -1626,6 +1718,48 @@
     const d = new Date(ts);
     const pad = (n) => String(n).padStart(2, '0');
     return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
+  // ---- オフライン時に使う「最後に取り込んだタイムテーブル」のキャッシュ(localStorage) ----
+  // 会場の電波が悪くても、最後に成功した取り込み結果をそのまま表示できるようにする。
+  const TIMETABLE_CACHE_KEY = 'satsuka_check_timetable_cache_v1';
+
+  function saveTimetableCache(snapshot) {
+    try {
+      localStorage.setItem(TIMETABLE_CACHE_KEY, JSON.stringify({ ...snapshot, cachedAt: Date.now() }));
+    } catch (e) {
+      // 保存容量オーバー等は無視(オフライン機能が使えないだけで致命的ではない)
+    }
+  }
+
+  function loadTimetableCache() {
+    try {
+      const raw = localStorage.getItem(TIMETABLE_CACHE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // オフライン時に、キャッシュ済みのタイムテーブル取り込み結果から状態を復元する
+  function restoreTimetableCache(cached) {
+    currentGroups = cached.groups || [];
+    currentStages = cached.stages || [];
+    currentStageAssignment = cached.stageAssignment || {};
+    currentPerformerTimes = cached.performerTimes || {};
+    currentTimeSlots = cached.timeSlots || [];
+    if (currentTimeSlots.length) stageViewMode = 'grid';
+    activeStageTabId = currentStages[0] ? currentStages[0].id : 'unassigned';
+    stageModeActive = true;
+    currentNotFound = [];
+    currentEventInfo = cached.eventTitle ? { title: cached.eventTitle } : null;
+    currentEditUrl = null;
+    currentListQuery = null;
+    currentTimetableUrl = cached.url;
+    currentUnknownOnPage = currentGroups.filter((g) => g._unknown).map((g) => g.name);
+    if (cached.dbTotal !== undefined) dbCountEl.textContent = cached.dbTotal;
+    pendingStageState = null;
+    pendingHistoryOrder = null;
   }
 
   // ---- 検索履歴(サーバー側=Cloudflare KVに保存。PC/スマホなど全端末で共通) ----
@@ -1838,6 +1972,23 @@
     return currentGroups.filter((g) => (currentStageAssignment[slotKey(g)] || 'unassigned') === stageId);
   }
 
+  // ---- 撮影可のみ表示フィルタ(静止画/動画 それぞれ独立してON/OFFできる) ----
+  let filterPhotoOkOnly = false;
+  let filterVideoOkOnly = false;
+
+  // 不可(✕)のため一覧から除外すべきかどうか。未登録は常に表示する。
+  function failsOkFilter(g) {
+    if (!g || g._unknown) return false;
+    if (filterPhotoOkOnly && g.photo === '不可') return true;
+    if (filterVideoOkOnly && g.video === '不可') return true;
+    return false;
+  }
+
+  // タブ/横並び表示用: フィルタで除外されるものは一覧から取り除く
+  function visibleMembersOfStage(stageId) {
+    return membersOfStage(stageId).filter((g) => !failsOkFilter(g));
+  }
+
   function addStage(name) {
     const trimmed = (name || '').trim();
     if (!trimmed) return;
@@ -1920,7 +2071,7 @@
   }
 
   function renderStageTabsView() {
-    const unassignedCount = membersOfStage('unassigned').length;
+    const unassignedCount = visibleMembersOfStage('unassigned').length;
 
     // 未振り分けが0件になっていて、かつ今それを見ている場合は、最初のステージへ自動的に切り替える
     if (unassignedCount === 0 && activeStageTabId === 'unassigned' && currentStages.length > 0) {
@@ -1934,13 +2085,13 @@
       ...currentStages.map((s) => `
         <div class="stage-tab ${activeStageTabId === s.id ? 'active' : ''}" data-tab-id="${s.id}" ${activeStageTabId === s.id ? `style="--active-stage-color:${s.color};"` : ''}>
           <input type="color" class="stage-color-input" data-color-stage="${s.id}" value="${s.color}" title="色を変更" />
-          ${escapeHtml(s.name)} (${membersOfStage(s.id).length})
+          ${escapeHtml(s.name)} (${visibleMembersOfStage(s.id).length})
           <button type="button" class="stage-del" data-del-stage="${s.id}" title="このステージを削除">✕</button>
         </div>
       `),
     ].join('');
 
-    const activeMembers = membersOfStage(activeStageTabId);
+    const activeMembers = visibleMembersOfStage(activeStageTabId);
     const listHtml = activeMembers.length
       ? `<div class="cards">${activeMembers.map((g) => renderCard(g, currentGroups.indexOf(g), currentGroups.length)).join('')}</div>`
       : `<div class="stage-list-empty">ここにカードをドラッグして割り当ててください</div>`;
@@ -1955,9 +2106,9 @@
     const columns = [
       { id: 'unassigned', name: '未振り分け', color: null },
       ...currentStages,
-    ].filter((col) => col.id !== 'unassigned' || membersOfStage('unassigned').length > 0);
+    ].filter((col) => col.id !== 'unassigned' || visibleMembersOfStage('unassigned').length > 0);
     const columnsHtml = columns.map((col) => {
-      const members = membersOfStage(col.id);
+      const members = visibleMembersOfStage(col.id);
       const body = members.length
         ? members.map((g) => renderStageCardRow(g, col.color)).join('')
         : `<div class="stage-list-empty">ドラッグして追加</div>`;
@@ -2062,8 +2213,9 @@
           } else {
             const photo = chipInfo(g.photo);
             const video = chipInfo(g.video);
+            const dimClass = failsOkFilter(g) ? ' grid-dim' : '';
             rowHtml += `
-              <td class="grid-cell${blockIsNow ? ' grid-now' : ''}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
+              <td class="grid-cell${blockIsNow ? ' grid-now' : ''}${dimClass}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}</div>
                 <div class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</div>
@@ -3100,6 +3252,8 @@
         <div class="result-head-title">
           <h2>照合結果 (${matchedCount})${unknownInlineCount > 0 ? ` <span class="page-title">+ 未登録${unknownInlineCount}件</span>` : ''}</h2>
           <button type="button" class="stage-toggle-btn${stageModeActive ? ' active' : ''}" id="stageToggle">複数ステージ</button>
+          <button type="button" class="ok-filter-btn${filterPhotoOkOnly ? ' active' : ''}" id="filterPhotoBtn">📷可のみ</button>
+          <button type="button" class="ok-filter-btn${filterVideoOkOnly ? ' active' : ''}" id="filterVideoBtn">🎥可のみ</button>
         </div>
         <div class="result-head-controls">
           <button type="button" class="export-btn" id="exportImageBtn">画像で保存</button>
@@ -3117,11 +3271,14 @@
       ? `<div class="col-headers"><span class="spacer"></span><span class="date-label">確認日</span><span class="col-label">静止画</span><span class="col-label">動画</span><span class="chevron-spacer"></span></div>`
       : '';
 
+    const visibleFlatGroups = currentGroups
+      .map((g, i) => ({ g, i }))
+      .filter(({ g }) => !failsOkFilter(g));
     const cardsOrStageSection = stageModeActive
       ? renderStageResultsSection()
-      : (currentGroups.length
-          ? `<div class="cards">${currentGroups.map((g, i) => renderCard(g, i, currentGroups.length)).join('')}</div>`
-          : `<div class="empty">一致するグループが見つかりませんでした。</div>`);
+      : (visibleFlatGroups.length
+          ? `<div class="cards">${visibleFlatGroups.map(({ g, i }) => renderCard(g, i, currentGroups.length)).join('')}</div>`
+          : `<div class="empty">${(filterPhotoOkOnly || filterVideoOkOnly) ? 'フィルタ条件に一致するグループがありません。' : '一致するグループが見つかりませんでした。'}</div>`);
 
     resultsEl.innerHTML = renderEventCard(currentEventInfo) + head + colHeaders + cardsOrStageSection + renderNotFound(currentNotFound) + renderUnknownOnPage(currentUnknownOnPage);
     attachCardEvents();
@@ -3136,6 +3293,21 @@
     if (stageToggleEl) {
       stageToggleEl.addEventListener('click', () => {
         stageModeActive = !stageModeActive;
+        draw();
+      });
+    }
+
+    const filterPhotoBtn = document.getElementById('filterPhotoBtn');
+    if (filterPhotoBtn) {
+      filterPhotoBtn.addEventListener('click', () => {
+        filterPhotoOkOnly = !filterPhotoOkOnly;
+        draw();
+      });
+    }
+    const filterVideoBtn = document.getElementById('filterVideoBtn');
+    if (filterVideoBtn) {
+      filterVideoBtn.addEventListener('click', () => {
+        filterVideoOkOnly = !filterVideoOkOnly;
         draw();
       });
     }
@@ -3813,10 +3985,32 @@
       currentTimetableUrl = url;
       currentUnknownOnPage = notFoundEntries.map((n) => n.name);
       addHistoryEntry('timetable', { url, eventTitle: data.eventTitle || '' });
+      saveTimetableCache({
+        url,
+        eventTitle: data.eventTitle || '',
+        groups: currentGroups,
+        stages: currentStages,
+        stageAssignment: currentStageAssignment,
+        performerTimes: currentPerformerTimes,
+        timeSlots: currentTimeSlots,
+        dbTotal: data.dbTotal,
+      });
       draw();
     } catch (err) {
-      statusEl.className = 'error';
-      statusEl.textContent = 'スプレッドシートの取得に失敗しました(オフライン、またはURLをご確認ください)';
+      // オフライン等で取得できない場合、端末に保存済みの前回のタイムテーブルがあれば復元する
+      const cached = loadTimetableCache();
+      if (cached && cached.url === url) {
+        restoreTimetableCache(cached);
+        statusEl.className = '';
+        statusEl.textContent = '';
+        draw();
+      } else if (cached) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'オフラインのため取得できませんでした。端末には別のタイムテーブル(前回取り込み分)が保存されています。同じURLをもう一度貼り付けると復元されます。';
+      } else {
+        statusEl.className = 'error';
+        statusEl.textContent = 'スプレッドシートの取得に失敗しました(オフライン、またはURLをご確認ください)';
+      }
     } finally {
       timetableGoBtn.disabled = false;
       timetableGoBtn.textContent = '取り込む';
