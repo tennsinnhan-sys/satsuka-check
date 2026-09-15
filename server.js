@@ -1046,9 +1046,66 @@ function parseTimetableCsv(rows) {
 
   return {
     eventTitle,
-    stages: stages.map((s) => ({ name: s.name, performers: s.performers })),
+    stages: stages.map((s) => ({ name: s.name, col: s.col, performers: s.performers })),
     timeSlots,
   };
+}
+
+// Google SheetsのセルカラーはR/G/B各0〜1の小数で返るので、#rrggbb形式に変換する。
+// 白(未設定扱いのことが多い)はnullを返し、呼び出し側でパレットにフォールバックさせる。
+function sheetsColorToHex(color) {
+  if (!color) return null;
+  const r = Math.round((color.red || 0) * 255);
+  const g = Math.round((color.green || 0) * 255);
+  const b = Math.round((color.blue || 0) * 255);
+  if (r >= 250 && g >= 250 && b >= 250) return null;
+  const toHex = (n) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+// スプレッドシートのステージ名セル(見出し行)の背景色を、Google Sheets APIで取得する。
+// CSVエクスポートには書式(色)情報が含まれないため、こちらは別APIを使う。
+// APIキー未設定・取得失敗時は空オブジェクトを返し、呼び出し側でパレットにフォールバックさせる。
+async function fetchStageColorsFromSheetsApi(sheetId, gid, stageCols) {
+  const apiKey = process.env.GOOGLE_SHEETS_API_KEY;
+  if (!apiKey || !sheetId || stageCols.length === 0) return {};
+  try {
+    // 1) gid(シートID)から、A1記法で参照するのに必要なシート名を特定する
+    const metaResp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties(sheetId,title)&key=${apiKey}`
+    );
+    if (!metaResp.ok) return {};
+    const meta = await metaResp.json();
+    const targetSheet = (meta.sheets || []).find(
+      (s) => String(s.properties.sheetId) === String(gid)
+    );
+    if (!targetSheet) return {};
+    const sheetTitle = targetSheet.properties.title;
+
+    // 2) 見出し行(2行目)のセル背景色だけを取得する
+    const encodedRange = encodeURIComponent(`${sheetTitle}!2:2`);
+    const dataResp = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?ranges=${encodedRange}&fields=sheets.data.rowData.values.userEnteredFormat.backgroundColor&key=${apiKey}`
+    );
+    if (!dataResp.ok) return {};
+    const data = await dataResp.json();
+    const rowValues = data.sheets && data.sheets[0] && data.sheets[0].data && data.sheets[0].data[0]
+      ? data.sheets[0].data[0].rowData && data.sheets[0].data[0].rowData[0]
+        ? data.sheets[0].data[0].rowData[0].values
+        : null
+      : null;
+    if (!rowValues) return {};
+
+    const colorsByCol = {};
+    for (const col of stageCols) {
+      const cell = rowValues[col];
+      const hex = cell ? sheetsColorToHex(cell.userEnteredFormat && cell.userEnteredFormat.backgroundColor) : null;
+      if (hex) colorsByCol[col] = hex;
+    }
+    return colorsByCol;
+  } catch (e) {
+    return {};
+  }
 }
 
 post("/api/timetable-import", async (req, res) => {
@@ -1065,6 +1122,7 @@ post("/api/timetable-import", async (req, res) => {
     const publishedMatch = url.match(/\/spreadsheets\/d\/e\/([a-zA-Z0-9_-]+)/);
     const gidMatch = url.match(/[#&?]gid=(\d+)/);
     const gid = gidMatch ? gidMatch[1] : "0";
+    let sheetId = null; // Sheets API(色取得)は「ウェブに公開」URLでは使えないため、通常URLの時だけ設定する
 
     let csvUrl;
     if (publishedMatch) {
@@ -1082,7 +1140,8 @@ post("/api/timetable-import", async (req, res) => {
       if (!idMatch) {
         return res.status(400).json({ ok: false, error: "GoogleスプレッドシートのURLではないようです" });
       }
-      csvUrl = `https://docs.google.com/spreadsheets/d/${idMatch[1]}/export?format=csv&gid=${gid}`;
+      sheetId = idMatch[1];
+      csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
     }
 
     const csvResp = await fetch(csvUrl, {
@@ -1106,6 +1165,18 @@ post("/api/timetable-import", async (req, res) => {
         ok: false,
         error: "ステージ情報を読み取れませんでした。シートの形式(1行目タイトル、2行目にステージ名の見出し)を確認してください。",
       });
+    }
+
+    // ステージ名セル(見出し行)の色をGoogle Sheets APIから取得できれば使う。
+    // 取得できなければ空のまま(呼び出し側=クライアントが自動パレットにフォールバックする)
+    const colorsByCol = await fetchStageColorsFromSheetsApi(
+      sheetId,
+      gid,
+      stages.map((s) => s.col)
+    );
+    const stageColors = {};
+    for (const s of stages) {
+      if (colorsByCol[s.col]) stageColors[s.name] = colorsByCol[s.col];
     }
 
     // 全ステージの出演者をまとめてDB照合(ステージをまたいだ重複は稀な前提)
@@ -1144,6 +1215,7 @@ post("/api/timetable-import", async (req, res) => {
       ok: true,
       eventTitle,
       stages: stages.map((s) => s.name),
+      stageColors,
       stageAssignment,
       performerTimes,
       timeSlots,

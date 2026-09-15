@@ -3763,10 +3763,12 @@
       pendingHistoryOrder = null;
 
       // シートから読み取ったステージ構成を、常にベースとして計算しておく
+      // (スプレッドシートのステージ名セルに色が設定されていればそれを使い、
+      //  無ければ従来通り自動パレットから順番に割り当てる)
       const freshStages = (data.stages || []).map((name, i) => ({
         id: `stage_${i}_${Date.now()}`,
         name,
-        color: STAGE_COLORS[i % STAGE_COLORS.length],
+        color: (data.stageColors && data.stageColors[name]) || STAGE_COLORS[i % STAGE_COLORS.length],
       }));
       const nameToId = new Map(freshStages.map((s) => [s.name, s.id]));
       const freshStageAssignment = {};
