@@ -639,8 +639,9 @@ function splitPerformerLine(line) {
 function extractTiget(rawText) {
   const lines = rawText.split("\n").map((l) => l.trim());
 
+  // 「出演者」「出演」の後に "(敬称略、50音順)" のような補足が付くページにも対応する
   const isHeaderLine = (l) =>
-    l === "出演者" || l === "出演" || /^[【\[]出演(者)?[】\]]/.test(l);
+    /^出演者?(\s*[\(（].*[\)）])?$/.test(l) || /^[【\[]出演(者)?[】\]]/.test(l);
 
   const headerIdx = lines.findIndex(isHeaderLine);
   if (headerIdx === -1) return [];
