@@ -1328,6 +1328,12 @@
   .badge.heroines { background: var(--heroines); }
   .badge.partial  { background: var(--partial); }
   .badge.unk      { background: var(--stage-deep); color: var(--muted); border: 1px dashed var(--line); }
+  .post-confirm-badge {
+    background: #2e5bff;
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 700;
+  }
   .badge.icon     { font-size: 11px; font-weight: 700; }
   .badge.text-badge {
     width: auto;
@@ -2193,6 +2199,7 @@
         <span>⠿</span>
         <span class="stage-card-name">${escapeHtml(g.name)}</span>
         <div class="badge-group">
+          ${renderPostConfirmBadge(g)}
           ${renderBadge(photo)}
           ${renderBadge(video)}
         </div>
@@ -2348,7 +2355,7 @@
               <td class="grid-cell${blockIsNow ? ' grid-now' : ''}${dimClass}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}</div>
-                <div class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</div>
+                <div class="grid-badges">${renderPostConfirmBadge(g)}${renderBadge(photo)}${renderBadge(video)}</div>
               </td>`;
           }
           return;
@@ -2951,6 +2958,12 @@
     return links;
   }
 
+  // 掲載確認(Notionの「掲載確認」チェックボックス)が必要な場合のバッジ
+  function renderPostConfirmBadge(g) {
+    if (!g || !g.needsPostConfirm) return '';
+    return '<span class="badge post-confirm-badge" title="掲載確認が必要">掲</span>';
+  }
+
   function renderCard(g, index, total) {
     if (g._unknown) return renderUnknownCard(g, index);
 
@@ -2976,6 +2989,7 @@
           ${g._overridden ? '<span class="edit-mark" title="この場限定で編集済み">✎</span>' : ''}
           ${renderCheckedDate(g.checkedDate)}
           <div class="badge-group">
+            ${renderPostConfirmBadge(g)}
             ${renderBadge(photo)}
             ${renderBadge(video)}
           </div>
@@ -3053,6 +3067,7 @@
           <div class="export-row-main">
             <span class="export-num">${i + 1}</span>
             <span class="export-name">${escapeHtml(g.name)}${editMark}</span>
+            ${renderPostConfirmBadge(g)}
             ${renderBadge(photo)}
             ${renderBadge(video)}
           </div>
@@ -3132,6 +3147,7 @@
           <div class="export-col-row">
             <div class="export-col-row-main">
               <span class="export-name">${escapeHtml(g.name)}</span>
+              ${renderPostConfirmBadge(g)}
               ${renderBadge(photo)}
               ${renderBadge(video)}
             </div>
@@ -3224,7 +3240,7 @@
               <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name">${escapeHtml(g.name)}${noteMarkerHtml}</div>
-                <div class="grid-badges">${renderBadge(photo)}${renderBadge(video)}</div>
+                <div class="grid-badges">${renderPostConfirmBadge(g)}${renderBadge(photo)}${renderBadge(video)}</div>
                 ${inlineNoteHtml}
               </td>`;
           }

@@ -130,6 +130,7 @@ function pageToGroup(page) {
     : "";
   const xLink = props["公式Xリンク"]?.url || "";
   const checkedDate = props["レギュ確認日"]?.date?.start || "";
+  const needsPostConfirm = !!props["掲載確認"]?.checkbox;
   const source1 =
     (props["ソース1"]?.rich_text &&
       extractPlainText(props["ソース1"].rich_text)) ||
@@ -161,6 +162,7 @@ function pageToGroup(page) {
     source1,
     source2,
     aliases,
+    needsPostConfirm,
     pageUrl: page.url,
   };
 }
