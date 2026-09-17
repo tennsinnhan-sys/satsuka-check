@@ -140,6 +140,15 @@ function pageToGroup(page) {
       extractPlainText(props["ソース2"].rich_text)) ||
     props["ソース2"]?.url ||
     "";
+  // 「UPDANCE Lily-Team A-」のような、チケットページ上での表記ゆれを吸収するための別名欄。
+  // 改行・「、」「,」「/」区切りで複数登録できる。
+  const aliasesRaw = props["別名"]?.rich_text
+    ? extractPlainText(props["別名"].rich_text)
+    : "";
+  const aliases = aliasesRaw
+    .split(/[\n、,\/]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   return {
     name: name.trim(),
@@ -151,6 +160,7 @@ function pageToGroup(page) {
     checkedDate,
     source1,
     source2,
+    aliases,
     pageUrl: page.url,
   };
 }
@@ -265,11 +275,12 @@ function mergeKnownSplitNames(tokens, groups) {
   return result;
 }
 
-// グループ名・読み仮名の索引を1回だけ作る(正規化も1回だけ計算しておく)
+// グループ名・読み仮名・別名の索引を1回だけ作る(正規化も1回だけ計算しておく)
 function buildGroupIndex(groups) {
   const byName = new Map();
   const byNameNoSpace = new Map();
   const byReading = new Map();
+  const byAlias = new Map();
   const normalized = [];
 
   for (const g of groups) {
@@ -283,10 +294,18 @@ function buildGroupIndex(groups) {
       const normReading = normalizeStr(g.reading).toLowerCase();
       if (normReading && !byReading.has(normReading)) byReading.set(normReading, g);
     }
+
+    if (g.aliases && g.aliases.length) {
+      for (const alias of g.aliases) {
+        const normAlias = normalizeStr(alias).toLowerCase();
+        if (normAlias && !byAlias.has(normAlias)) byAlias.set(normAlias, g);
+      }
+    }
+
     normalized.push({ group: g, normName });
   }
 
-  return { byName, byNameNoSpace, byReading, normalized };
+  return { byName, byNameNoSpace, byReading, byAlias, normalized };
 }
 
 // "かすみ草とステラ 1期生" "かすみ草とステラ(1期生)" のような「◯期生」の指定を取り除いて、
@@ -372,6 +391,13 @@ function matchListAgainstGroups(tokens, groups, options = {}) {
     if (!match) {
       match = index.byName.get(normToken);
       matchType = "exact";
+    }
+
+    // 2b) 別名(Notionの「別名」欄に登録した表記ゆれ)との完全一致
+    //     例: 「UPDANCE Lily-Team A-」を「UPDANCE Lily」として登録しておく
+    if (!match) {
+      match = index.byAlias.get(normToken);
+      matchType = "exact-alias";
     }
 
     // 3) 読み仮名との完全一致(索引を引くだけ)
@@ -909,6 +935,19 @@ post("/api/lookup", async (req, res) => {
             pos = normPageTextNoSpace.indexOf(noSpaceName); // 並び順用の概算位置
           }
         }
+        // 別名(Notionの「別名」欄)でもページ内を検索する
+        // 例: 「UPDANCE Lily-Team A-」「UPDANCE Lily-Team B-」を「UPDANCE Lily」の別名として登録しておく
+        if (pos === -1 && g.aliases && g.aliases.length) {
+          for (const alias of g.aliases) {
+            const normAlias = normalizeStr(alias);
+            if (!normAlias) continue;
+            const aliasPos = normPageText.indexOf(normAlias);
+            if (aliasPos !== -1) {
+              pos = aliasPos;
+              break;
+            }
+          }
+        }
         if (pos !== -1) {
           matched.push({ ...g, _pos: pos });
         }
@@ -935,13 +974,22 @@ post("/api/lookup", async (req, res) => {
     const dbNameSetNoSpace = new Set(
       groups.map((g) => normalizeStr(g.name).toLowerCase().replace(/\s+/g, ""))
     );
+    // 別名(Notionの「別名」欄)も、既にmatched側に入っている扱いにする
+    const dbAliasSet = new Set();
+    for (const g of groups) {
+      if (!g.aliases) continue;
+      for (const alias of g.aliases) {
+        const normAlias = normalizeStr(alias).toLowerCase();
+        if (normAlias) dbAliasSet.add(normAlias);
+      }
+    }
     const unknownOnPage = [];
     const seenCandidate = new Set();
     for (const c of candidates) {
       const norm = normalizeStr(c).toLowerCase();
       if (!norm || seenCandidate.has(norm)) continue;
       seenCandidate.add(norm);
-      if (dbNameSet.has(norm) || dbNameSetNoSpace.has(norm.replace(/\s+/g, ""))) continue; // すでに matched 側に入っている
+      if (dbNameSet.has(norm) || dbNameSetNoSpace.has(norm.replace(/\s+/g, "")) || dbAliasSet.has(norm)) continue; // すでに matched 側に入っている
 
       const pos = normPageText.indexOf(normalizeStr(c));
       const pagePos = pos === -1 ? Number.MAX_SAFE_INTEGER : pos;
