@@ -425,7 +425,11 @@ function matchListAgainstGroups(tokens, groups, options = {}) {
     }
 
     if (match) {
-      results.push({ ...match, query: token, matchType, pagePos: orderIndex });
+      // 別名一致の場合、DBの正式名に統一すると「UPDANCE Lily-Team A-」「-Team B-」のような
+      // タイムテーブル上での区別が失われてしまう。レギュ情報(静止画/動画/備考等)はDBのものを
+      // 使いつつ、表示名だけは元のトークン(ページ/シート上の実際の表記)を残す。
+      const displayName = matchType === "exact-alias" ? token.trim() : match.name;
+      results.push({ ...match, name: displayName, query: token, matchType, pagePos: orderIndex });
     } else {
       notFound.push({
         name: token,
