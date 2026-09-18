@@ -2110,6 +2110,9 @@
   let filterPhotoOkOnly = false;
   let filterVideoOkOnly = false;
 
+  // ---- 見たい度(★)フィルタ(0=フィルタなし、1〜3=その数以上のみ表示) ----
+  let priorityFilterMin = 0;
+
   // ---- グループ名検索 ----
   let searchQuery = '';
 
@@ -2128,9 +2131,16 @@
     return false;
   }
 
-  // 撮影可フィルタ・検索、どちらかに引っかかったら一覧から除外(非表示/半透明)する対象かどうか
+  // 見たい度フィルタで除外すべきかどうか(未登録は常に表示)
+  function failsPriorityFilter(g) {
+    if (!g || g._unknown || priorityFilterMin <= 0) return false;
+    return getPriority(g) < priorityFilterMin;
+  }
+
+  // 撮影可フィルタ・見たい度フィルタ・検索、いずれかに引っかかったら
+  // 一覧から除外(非表示/半透明)する対象かどうか
   function isHiddenFromView(g) {
-    return failsOkFilter(g) || !matchesSearch(g);
+    return failsOkFilter(g) || failsPriorityFilter(g) || !matchesSearch(g);
   }
 
   // タブ/横並び表示用: フィルタ・検索で除外されるものは一覧から取り除く
@@ -3476,8 +3486,9 @@
           <h2>照合結果 (${matchedCount})${unknownInlineCount > 0 ? ` <span class="page-title">+ 未登録${unknownInlineCount}件</span>` : ''}</h2>
           ${isSharedView ? '<span class="shared-view-badge">👁 共有リンクを閲覧中</span>' : `
             <button type="button" class="stage-toggle-btn${stageModeActive ? ' active' : ''}" id="stageToggle">複数ステージ</button>
-            <button type="button" class="ok-filter-btn${filterPhotoOkOnly ? ' active' : ''}" id="filterPhotoBtn">📷可のみ</button>
-            <button type="button" class="ok-filter-btn${filterVideoOkOnly ? ' active' : ''}" id="filterVideoBtn">🎥可のみ</button>
+            <button type="button" class="ok-filter-btn${filterPhotoOkOnly ? ' active' : ''}" id="filterPhotoBtn" title="静止画 可のみ表示">📷</button>
+            <button type="button" class="ok-filter-btn${filterVideoOkOnly ? ' active' : ''}" id="filterVideoBtn" title="動画 可のみ表示">🎥</button>
+            <button type="button" class="ok-filter-btn priority-filter-btn${priorityFilterMin > 0 ? ' active' : ''}" id="filterPriorityBtn" title="見たい度で絞り込み(タップで1以上→2以上→3以上→解除)">★${priorityFilterMin > 0 ? `${priorityFilterMin}+` : ''}</button>
           `}
         </div>
         <div class="result-head-controls">
@@ -3547,6 +3558,13 @@
     if (filterVideoBtn) {
       filterVideoBtn.addEventListener('click', () => {
         filterVideoOkOnly = !filterVideoOkOnly;
+        draw();
+      });
+    }
+    const filterPriorityBtn = document.getElementById('filterPriorityBtn');
+    if (filterPriorityBtn) {
+      filterPriorityBtn.addEventListener('click', () => {
+        priorityFilterMin = priorityFilterMin >= 3 ? 0 : priorityFilterMin + 1; // 1→2→3→0 と巡回
         draw();
       });
     }
