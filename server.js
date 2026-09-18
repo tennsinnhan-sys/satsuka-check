@@ -185,41 +185,75 @@ async function fetchAllGroups() {
   return groups;
 }
 
-async function getGroups(forceRefresh = false) {
+const GROUPS_KV_KEY = "cache:groups"; // 全拠点で共有するDBキャッシュ(Cloudflare KV)
+const LOCAL_CACHE_TTL_MS = 60 * 1000; // このインスタンス内だけの高速パス用キャッシュ(短め: 1分)
+
+async function getGroups(forceRefresh = false, env = null) {
   const now = Date.now();
 
-  // 明示的な再取得(「DBを再取得」ボタン)は、実際に新しいデータを取り終わるまで待つ
+  // 明示的な再取得(「DBを再取得」ボタン)は、実際に新しいデータを取り終わるまで待ち、
+  // 全拠点で共有しているKVにも書き込む(これをしないと、別の拠点が古いキャッシュのままになる)
   if (forceRefresh) {
     groupCache = await fetchAllGroups();
     lastFetched = Date.now();
     isRefreshing = false;
+    if (env && env.HISTORY_KV) {
+      await env.HISTORY_KV
+        .put(GROUPS_KV_KEY, JSON.stringify({ groups: groupCache, fetchedAt: lastFetched }))
+        .catch((e) => console.error("KVへのグループキャッシュ保存に失敗しました:", e));
+    }
     return groupCache;
   }
 
-  // 初回(サーバー起動直後でキャッシュが空)は、待つしかない
-  if (groupCache.length === 0) {
-    groupCache = await fetchAllGroups();
-    lastFetched = Date.now();
+  // このインスタンス内のキャッシュがまだ新しければ、KVへの往復を省いてそのまま返す
+  if (groupCache.length > 0 && now - lastFetched <= LOCAL_CACHE_TTL_MS) {
     return groupCache;
   }
 
-  // キャッシュ期限切れ: 古いデータを即座に返しつつ、裏側で更新する(stale-while-revalidate)
-  const isStale = now - lastFetched > CACHE_TTL_MS;
-  if (isStale && !isRefreshing) {
-    isRefreshing = true;
-    fetchAllGroups()
-      .then((fresh) => {
-        groupCache = fresh;
-        lastFetched = Date.now();
-      })
-      .catch((e) => {
-        console.error("バックグラウンドでのDB再取得に失敗しました:", e);
-      })
-      .finally(() => {
-        isRefreshing = false;
-      });
+  // Cloudflare Workersは世界中の複数拠点で動いており、モジュール変数(groupCache)は
+  // 拠点ごとに別々になる。そのため、まず全拠点で共有しているKVを確認してから
+  // 必要な場合だけNotionに問い合わせる。
+  if (env && env.HISTORY_KV) {
+    try {
+      const kvData = await env.HISTORY_KV.get(GROUPS_KV_KEY, "json");
+      if (kvData && Array.isArray(kvData.groups) && kvData.groups.length > 0) {
+        groupCache = kvData.groups;
+        lastFetched = kvData.fetchedAt || now;
+
+        const kvIsStale = now - lastFetched > CACHE_TTL_MS;
+        if (kvIsStale && !isRefreshing) {
+          // KV側も期限切れ: 古いデータを即座に返しつつ、裏側で更新する(stale-while-revalidate)
+          isRefreshing = true;
+          fetchAllGroups()
+            .then(async (fresh) => {
+              groupCache = fresh;
+              lastFetched = Date.now();
+              if (env.HISTORY_KV) {
+                await env.HISTORY_KV
+                  .put(GROUPS_KV_KEY, JSON.stringify({ groups: fresh, fetchedAt: lastFetched }))
+                  .catch((e) => console.error("KVへのグループキャッシュ保存に失敗しました:", e));
+              }
+            })
+            .catch((e) => console.error("バックグラウンドでのDB再取得に失敗しました:", e))
+            .finally(() => {
+              isRefreshing = false;
+            });
+        }
+        return groupCache;
+      }
+    } catch (e) {
+      console.error("KVからのグループキャッシュ取得に失敗しました:", e);
+    }
   }
 
+  // KVにも無い(初回起動時など)場合は、待つしかない
+  groupCache = await fetchAllGroups();
+  lastFetched = now;
+  if (env && env.HISTORY_KV) {
+    await env.HISTORY_KV
+      .put(GROUPS_KV_KEY, JSON.stringify({ groups: groupCache, fetchedAt: lastFetched }))
+      .catch((e) => console.error("KVへのグループキャッシュ保存に失敗しました:", e));
+  }
   return groupCache;
 }
 
@@ -467,9 +501,9 @@ function matchListAgainstGroups(tokens, groups, options = {}) {
 // ---- API ----
 
 // オフライン時にクライアント側でキャッシュして使うための、DB全件返却API
-get("/api/groups", async (req, res) => {
+get("/api/groups", async (req, res, env) => {
   try {
-    const groups = await getGroups();
+    const groups = await getGroups(false, env);
     res.json({ ok: true, groups, dbTotal: groups.length, fetchedAt: Date.now() });
   } catch (e) {
     console.error(e);
@@ -477,9 +511,9 @@ get("/api/groups", async (req, res) => {
   }
 });
 
-post("/api/refresh", async (req, res) => {
+post("/api/refresh", async (req, res, env) => {
   try {
-    const groups = await getGroups(true);
+    const groups = await getGroups(true, env);
     res.json({ ok: true, count: groups.length });
   } catch (e) {
     console.error(e);
@@ -833,7 +867,7 @@ function extractCandidatesFromSite(hostname, rawText, metaDesc) {
   return [];
 }
 
-post("/api/lookup", async (req, res) => {
+post("/api/lookup", async (req, res, env) => {
   const { url } = req.body || {};
 
   if (!url || !/^https?:\/\//i.test(url)) {
@@ -924,7 +958,7 @@ post("/api/lookup", async (req, res) => {
       // ignore
     }
 
-    const groups = await getGroups();
+    const groups = await getGroups(false, env);
     const groupIndex = buildGroupIndex(groups);
 
     // グループ名がページ本文にそのまま含まれるかで判定(サイト構造に依存しない汎用方式)
@@ -1037,7 +1071,7 @@ post("/api/lookup", async (req, res) => {
   }
 });
 
-post("/api/lookup-list", async (req, res) => {
+post("/api/lookup-list", async (req, res, env) => {
   const { text } = req.body || {};
 
   if (!text || !text.trim()) {
@@ -1051,7 +1085,7 @@ post("/api/lookup-list", async (req, res) => {
       return res.status(400).json({ ok: false, error: "グループ名を認識できませんでした" });
     }
 
-    const groups = await getGroups();
+    const groups = await getGroups(false, env);
     const mergedTokens = mergeKnownSplitNames(tokens, groups);
     const { matched, notFound } = matchListAgainstGroups(mergedTokens, groups);
 
@@ -1217,7 +1251,7 @@ async function fetchStageColorsFromSheetsApi(sheetId, gid, stageCols) {
   }
 }
 
-post("/api/timetable-import", async (req, res) => {
+post("/api/timetable-import", async (req, res, env) => {
   try {
     const { url } = req.body || {};
     if (!url || !url.trim()) {
@@ -1289,7 +1323,7 @@ post("/api/timetable-import", async (req, res) => {
     }
 
     // 全ステージの出演者をまとめてDB照合(ステージをまたいだ重複は稀な前提)
-    const groups = await getGroups();
+    const groups = await getGroups(false, env);
     const allTokens = [];
     const tokenStageMap = []; // allTokensと同じ並びで、どのステージ名に属するかを記録
     const tokenTimeMap = []; // allTokensと同じ並びで、時間帯("10:00-10:25")を記録
