@@ -1334,6 +1334,21 @@
     font-size: 10px;
     font-weight: 700;
   }
+  .priority-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    cursor: pointer;
+    letter-spacing: -1px;
+    flex-shrink: 0;
+  }
+  .priority-badge span {
+    color: var(--line);
+    font-size: 13px;
+  }
+  .priority-badge span.filled {
+    color: #ff6b4a;
+  }
   .badge.icon     { font-size: 11px; font-weight: 700; }
   .badge.text-badge {
     width: auto;
@@ -2199,6 +2214,7 @@
         <span>⠿</span>
         <span class="stage-card-name">${escapeHtml(g.name)}</span>
         <div class="badge-group">
+          ${renderPriorityBadge(g)}
           ${renderPostConfirmBadge(g)}
           ${renderBadge(photo)}
           ${renderBadge(video)}
@@ -2355,7 +2371,7 @@
               <td class="grid-cell${blockIsNow ? ' grid-now' : ''}${dimClass}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}</div>
-                <div class="grid-badges">${renderPostConfirmBadge(g)}${renderBadge(photo)}${renderBadge(video)}</div>
+                <div class="grid-badges">${renderPriorityBadge(g)}${renderPostConfirmBadge(g)}${renderBadge(photo)}${renderBadge(video)}</div>
               </td>`;
           }
           return;
@@ -2964,6 +2980,41 @@
     return '<span class="badge post-confirm-badge" title="掲載確認が必要">掲</span>';
   }
 
+  // ---- 見たいグループの優先度(★0〜3段階、端末に保存) ----
+  const GROUP_PRIORITY_KEY = 'satsuka_check_group_priority_v1';
+  let groupPriorities = {};
+  try {
+    groupPriorities = JSON.parse(localStorage.getItem(GROUP_PRIORITY_KEY) || '{}');
+  } catch (e) {
+    groupPriorities = {};
+  }
+
+  function priorityKeyFor(name) {
+    return String(name || '').normalize('NFKC').trim().toLowerCase();
+  }
+
+  function getPriority(g) {
+    if (!g || g._unknown) return 0;
+    return groupPriorities[priorityKeyFor(g.name)] || 0;
+  }
+
+  function setPriority(g, level) {
+    const key = priorityKeyFor(g.name);
+    if (level > 0) {
+      groupPriorities[key] = level;
+    } else {
+      delete groupPriorities[key];
+    }
+    try { localStorage.setItem(GROUP_PRIORITY_KEY, JSON.stringify(groupPriorities)); } catch (e) {}
+  }
+
+  function renderPriorityBadge(g) {
+    if (!g || g._unknown) return '';
+    const level = getPriority(g);
+    const stars = [1, 2, 3].map((n) => `<span class="${n <= level ? 'filled' : ''}">★</span>`).join('');
+    return `<span class="priority-badge" data-priority-name="${escapeAttr(g.name)}" title="見たい度(タップで切り替え)">${stars}</span>`;
+  }
+
   function renderCard(g, index, total) {
     if (g._unknown) return renderUnknownCard(g, index);
 
@@ -2989,7 +3040,8 @@
           ${g._overridden ? '<span class="edit-mark" title="この場限定で編集済み">✎</span>' : ''}
           ${renderCheckedDate(g.checkedDate)}
           <div class="badge-group">
-            ${renderPostConfirmBadge(g)}
+            ${renderPriorityBadge(g)}
+          ${renderPostConfirmBadge(g)}
             ${renderBadge(photo)}
             ${renderBadge(video)}
           </div>
@@ -3067,7 +3119,8 @@
           <div class="export-row-main">
             <span class="export-num">${i + 1}</span>
             <span class="export-name">${escapeHtml(g.name)}${editMark}</span>
-            ${renderPostConfirmBadge(g)}
+            ${renderPriorityBadge(g)}
+          ${renderPostConfirmBadge(g)}
             ${renderBadge(photo)}
             ${renderBadge(video)}
           </div>
@@ -3147,7 +3200,8 @@
           <div class="export-col-row">
             <div class="export-col-row-main">
               <span class="export-name">${escapeHtml(g.name)}</span>
-              ${renderPostConfirmBadge(g)}
+              ${renderPriorityBadge(g)}
+          ${renderPostConfirmBadge(g)}
               ${renderBadge(photo)}
               ${renderBadge(video)}
             </div>
@@ -3240,7 +3294,7 @@
               <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
                 <div class="grid-cell-name">${escapeHtml(g.name)}${noteMarkerHtml}</div>
-                <div class="grid-badges">${renderPostConfirmBadge(g)}${renderBadge(photo)}${renderBadge(video)}</div>
+                <div class="grid-badges">${renderPriorityBadge(g)}${renderPostConfirmBadge(g)}${renderBadge(photo)}${renderBadge(video)}</div>
                 ${inlineNoteHtml}
               </td>`;
           }
@@ -3590,6 +3644,17 @@
   }
 
   function attachCardEvents() {
+    resultsEl.querySelectorAll('.priority-badge[data-priority-name]').forEach((badgeEl) => {
+      badgeEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const g = currentGroups.find((gr) => gr.name === badgeEl.dataset.priorityName);
+        if (!g) return;
+        const next = (getPriority(g) + 1) % 4; // 0→1→2→3→0 と巡回
+        setPriority(g, next);
+        draw();
+      });
+    });
+
     resultsEl.querySelectorAll('.card').forEach((card) => {
       card.addEventListener('dragstart', onDragStart);
       card.addEventListener('dragend', onDragEnd);
