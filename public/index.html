@@ -1701,6 +1701,12 @@
         <div class="modal-label">動画(この場限定)</div>
         <div class="option-row" id="editVideoOptions"></div>
 
+        <div class="modal-label">掲載確認(この場限定)</div>
+        <div class="edit-toggle-wrap" id="editPostConfirmToggleWrap">
+          <span>掲載確認が必要</span>
+          <div class="edit-toggle" id="editPostConfirmToggle"><div class="knob"></div></div>
+        </div>
+
         <div class="modal-label">メモ</div>
         <textarea class="modal-memo" id="editMemo" placeholder="例: フロア後方のみ撮影OK"></textarea>
 
@@ -1765,6 +1771,7 @@
   const editPhotoOptions = document.getElementById('editPhotoOptions');
   const editVideoOptions = document.getElementById('editVideoOptions');
   const editMemo = document.getElementById('editMemo');
+  const editPostConfirmToggle = document.getElementById('editPostConfirmToggle');
   const editModalClose = document.getElementById('editModalClose');
   const editModalReset = document.getElementById('editModalReset');
   const editModalSave = document.getElementById('editModalSave');
@@ -3920,24 +3927,32 @@
 
     let selectedPhoto = g.photo;
     let selectedVideo = g.video;
+    let selectedPostConfirm = !!g.needsPostConfirm;
 
     const redrawOptions = () => {
       renderOptionRow(editPhotoOptions, selectedPhoto, (v) => { selectedPhoto = v; redrawOptions(); });
       renderOptionRow(editVideoOptions, selectedVideo, (v) => { selectedVideo = v; redrawOptions(); });
+      editPostConfirmToggle.classList.toggle('on', selectedPostConfirm);
     };
     redrawOptions();
 
+    editPostConfirmToggle.onclick = () => {
+      selectedPostConfirm = !selectedPostConfirm;
+      redrawOptions();
+    };
+
     editModalSave.onclick = () => {
       if (!g._overridden) {
-        g._original = { photo: g.photo, video: g.video, note: g.note, _unknown: g._unknown };
+        g._original = { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm, _unknown: g._unknown };
       }
       g.photo = selectedPhoto;
       g.video = selectedVideo;
       g.note = editMemo.value.trim();
+      g.needsPostConfirm = selectedPostConfirm;
       g._overridden = true;
       g._unknown = false;
       if (currentEditUrl) {
-        setEditForGroup(currentEditUrl, g.name, { photo: g.photo, video: g.video, note: g.note });
+        setEditForGroup(currentEditUrl, g.name, { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm });
       }
       closeEditModal();
       draw();
@@ -3948,6 +3963,7 @@
         g.photo = g._original.photo;
         g.video = g._original.video;
         g.note = g._original.note;
+        g.needsPostConfirm = g._original.needsPostConfirm;
         g._unknown = !!g._original._unknown;
         delete g._original;
         delete g._overridden;
@@ -4157,10 +4173,13 @@
         for (const g of currentGroups) {
           const saved = savedEdits.groups[g.name];
           if (saved) {
-            g._original = { photo: g.photo, video: g.video, note: g.note, _unknown: g._unknown };
+            g._original = { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm, _unknown: g._unknown };
             g.photo = saved.photo;
             g.video = saved.video;
             g.note = saved.note;
+            if (Object.prototype.hasOwnProperty.call(saved, 'needsPostConfirm')) {
+              g.needsPostConfirm = saved.needsPostConfirm;
+            }
             g._overridden = true;
             g._unknown = false;
             restoredCount++;
