@@ -1014,13 +1014,13 @@ post("/api/lookup", async (req, res, env) => {
     const dbNameSetNoSpace = new Set(
       groups.map((g) => normalizeStr(g.name).toLowerCase().replace(/\s+/g, ""))
     );
-    // 別名(Notionの「別名」欄)も、既にmatched側に入っている扱いにする
-    const dbAliasSet = new Set();
+    // 別名(Notionの「別名」欄)の索引(正規化した別名 → グループ本体)
+    const dbAliasMap = new Map();
     for (const g of groups) {
       if (!g.aliases) continue;
       for (const alias of g.aliases) {
         const normAlias = normalizeStr(alias).toLowerCase();
-        if (normAlias) dbAliasSet.add(normAlias);
+        if (normAlias && !dbAliasMap.has(normAlias)) dbAliasMap.set(normAlias, g);
       }
     }
     const unknownOnPage = [];
@@ -1029,10 +1029,20 @@ post("/api/lookup", async (req, res, env) => {
       const norm = normalizeStr(c).toLowerCase();
       if (!norm || seenCandidate.has(norm)) continue;
       seenCandidate.add(norm);
-      if (dbNameSet.has(norm) || dbNameSetNoSpace.has(norm.replace(/\s+/g, "")) || dbAliasSet.has(norm)) continue; // すでに matched 側に入っている
+      if (dbNameSet.has(norm) || dbNameSetNoSpace.has(norm.replace(/\s+/g, ""))) continue; // すでに matched 側に入っている
 
       const pos = normPageText.indexOf(normalizeStr(c));
       const pagePos = pos === -1 ? Number.MAX_SAFE_INTEGER : pos;
+
+      // 別名(Notionの「別名」欄)に一致する場合、ページ全体からの検索(1件にまとまってしまう)
+      // ではなく、この候補(例: 「UPDANCE Lily-Team A-」)の表記そのままで1件のカードにする。
+      // 同じグループの別名違いが複数ページに出てきても、それぞれ別々に表示できるようにするため。
+      const aliasGroup = dbAliasMap.get(norm);
+      if (aliasGroup) {
+        uniqueMap.delete(aliasGroup.name); // ページ全体検索で先に登録された「まとめ」表示があれば消す
+        uniqueMap.set(c, { ...aliasGroup, name: c, pagePos });
+        continue;
+      }
 
       // 「かすみ草とステラ 4期生」のように「◯期生」付きで、無印の方がDBにある場合は、
       // 無印グループ単体の表示は消し、このサフィックス付き表示名で1件にまとめる
