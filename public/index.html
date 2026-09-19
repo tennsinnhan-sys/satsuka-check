@@ -2526,6 +2526,7 @@
         const overCard = e.target.closest('.stage-card');
         if (overCard && overCard.dataset.stageDragName !== stageDragName) {
           reorderWithinCurrentGroups(stageDragName, overCard.dataset.stageDragName);
+          saveCurrentOrderToHistory();
         }
         assignToStage(stageDragName, targetStageId);
         stageDragName = null;
@@ -2644,6 +2645,40 @@
     const all = loadAllEdits();
     delete all[url];
     saveAllEdits(all);
+  }
+
+  // 「この場限定」編集の保存に使うキーを、モードに応じて返す。
+  // URL照合はチケットURL、リスト照合は入力テキスト、タイムテーブルは取り込み元URLをキーにする。
+  function currentEditKey() {
+    if (currentTabMode === 'url') return currentEditUrl;
+    if (currentTabMode === 'list') return currentListQuery ? currentListQuery.text : null;
+    if (currentTabMode === 'timetable') return currentTimetableUrl;
+    return null;
+  }
+
+  // 保存済みの「この場限定」編集を、現在のcurrentGroupsに復元する(全モード共通)
+  function restoreSavedEdits(editKey) {
+    if (!editKey) return { restoredCount: 0, savedAt: null };
+    const savedEdits = getEditsForUrl(editKey);
+    let restoredCount = 0;
+    if (savedEdits) {
+      for (const g of currentGroups) {
+        const saved = savedEdits.groups[g.name];
+        if (saved) {
+          g._original = { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm, _unknown: g._unknown };
+          g.photo = saved.photo;
+          g.video = saved.video;
+          g.note = saved.note;
+          if (Object.prototype.hasOwnProperty.call(saved, 'needsPostConfirm')) {
+            g.needsPostConfirm = saved.needsPostConfirm;
+          }
+          g._overridden = true;
+          g._unknown = false;
+          restoredCount++;
+        }
+      }
+    }
+    return { restoredCount, savedAt: savedEdits ? savedEdits.savedAt : null };
   }
 
   async function refreshGroupsCache() {
@@ -3951,8 +3986,9 @@
       g.needsPostConfirm = selectedPostConfirm;
       g._overridden = true;
       g._unknown = false;
-      if (currentEditUrl) {
-        setEditForGroup(currentEditUrl, g.name, { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm });
+      const editKey = currentEditKey();
+      if (editKey) {
+        setEditForGroup(editKey, g.name, { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm });
       }
       closeEditModal();
       draw();
@@ -3968,8 +4004,9 @@
         delete g._original;
         delete g._overridden;
       }
-      if (currentEditUrl) {
-        removeEditForGroup(currentEditUrl, g.name);
+      const editKey = currentEditKey();
+      if (editKey) {
+        removeEditForGroup(editKey, g.name);
       }
       closeEditModal();
       draw();
@@ -4167,28 +4204,10 @@
 
       addHistoryEntry('url', { url, title: currentEventInfo ? currentEventInfo.title : '' });
 
-      const savedEdits = getEditsForUrl(url);
-      let restoredCount = 0;
-      if (savedEdits) {
-        for (const g of currentGroups) {
-          const saved = savedEdits.groups[g.name];
-          if (saved) {
-            g._original = { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm, _unknown: g._unknown };
-            g.photo = saved.photo;
-            g.video = saved.video;
-            g.note = saved.note;
-            if (Object.prototype.hasOwnProperty.call(saved, 'needsPostConfirm')) {
-              g.needsPostConfirm = saved.needsPostConfirm;
-            }
-            g._overridden = true;
-            g._unknown = false;
-            restoredCount++;
-          }
-        }
-      }
+      const { restoredCount, savedAt } = restoreSavedEdits(url);
 
       statusEl.textContent = restoredCount > 0
-        ? `前回(${formatCachedAt(savedEdits.savedAt)})の編集${restoredCount}件を復元しました`
+        ? `前回(${formatCachedAt(savedAt)})の編集${restoredCount}件を復元しました`
         : '';
 
       draw();
@@ -4249,6 +4268,7 @@
       currentListQuery = { text, eventName };
       currentUnknownOnPage = notFoundEntries.map((n) => n.name);
       addHistoryEntry('list', { text, eventName });
+      restoreSavedEdits(currentListQuery.text);
       draw();
     } catch (err) {
       // サーバーに届かない(オフライン等) → 端末保存のDBスナップショットで代わりに照合
@@ -4287,6 +4307,7 @@
       currentListQuery = { text, eventName };
       currentUnknownOnPage = notFound.map((n) => n.name);
       addHistoryEntry('list', { text, eventName });
+      restoreSavedEdits(currentListQuery.text);
       draw();
     } finally {
       listGoBtn.disabled = false;
@@ -4393,6 +4414,7 @@
         timeSlots: currentTimeSlots,
         dbTotal: data.dbTotal,
       });
+      restoreSavedEdits(currentTimetableUrl);
       draw();
     } catch (err) {
       // オフライン等で取得できない場合、端末に保存済みの前回のタイムテーブルがあれば復元する
