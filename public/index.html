@@ -1636,7 +1636,6 @@
         <div class="db-badge">
           DB件数: <span id="dbCount">—</span> 件
           <button id="refreshBtn" type="button">DBを再取得</button>
-          <button id="checkXLinksBtn" type="button">Xリンクをチェック</button>
           <span class="cache-note" id="cacheNote"></span>
         </div>
       </div>
@@ -1728,16 +1727,6 @@
       </div>
     </div>
 
-    <div class="modal-overlay" id="xLinkCheckModal">
-      <div class="modal-box">
-        <div class="modal-header">
-          <span class="name">Xリンクのチェック</span>
-          <button type="button" class="modal-close" id="xLinkCheckModalClose" aria-label="閉じる">✕</button>
-        </div>
-        <div id="xLinkCheckModalBody"></div>
-      </div>
-    </div>
-
     <div class="modal-overlay" id="shareModal">
       <div class="modal-box">
         <div class="modal-header">
@@ -1775,10 +1764,6 @@
   const resultsEl = document.getElementById('results');
   const dbCountEl = document.getElementById('dbCount');
   const refreshBtn = document.getElementById('refreshBtn');
-  const checkXLinksBtn = document.getElementById('checkXLinksBtn');
-  const xLinkCheckModal = document.getElementById('xLinkCheckModal');
-  const xLinkCheckModalBody = document.getElementById('xLinkCheckModalBody');
-  const xLinkCheckModalClose = document.getElementById('xLinkCheckModalClose');
   const cacheNoteEl = document.getElementById('cacheNote');
   const offlineBanner = document.getElementById('offlineBanner');
   const editModal = document.getElementById('editModal');
@@ -4134,79 +4119,6 @@
   }
 
   refreshBtn.addEventListener('click', runRefresh);
-
-  async function runCheckXLinks() {
-    checkXLinksBtn.disabled = true;
-    checkXLinksBtn.textContent = 'チェック中…';
-    xLinkCheckModalBody.innerHTML = `
-      <div class="modal-hint">
-        DB登録済みのXリンクへ実際にアクセスして確認します。時間がかかる場合があります。<br>
-        ※X(旧Twitter)は自動アクセスに厳しいサイトのため、実際は生きているリンクでも
-        エラー扱いになることがあります。あくまで参考情報としてご覧ください。
-      </div>
-      <div id="xLinkCheckProgress" style="margin-top:10px; color:var(--ink-dim); font-size:12px;">確認中… 0件</div>
-    `;
-    xLinkCheckModal.classList.add('show');
-
-    const progressEl = document.getElementById('xLinkCheckProgress');
-    const broken = [];
-    let offset = 0;
-    let total = null;
-    let checked = 0;
-
-    try {
-      while (true) {
-        const res = await fetch('/api/check-x-links', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ offset, limit: 30 }),
-        });
-        const data = await res.json();
-        if (!data.ok) {
-          xLinkCheckModalBody.innerHTML = `<div class="modal-hint">エラー: ${escapeHtml(data.error || 'チェックに失敗しました')}</div>`;
-          return;
-        }
-        total = data.total;
-        checked += data.results.length;
-        for (const r of data.results) {
-          if (!r.ok) broken.push(r);
-        }
-        if (progressEl) progressEl.textContent = `確認中… ${checked} / ${total} 件(リンク切れの可能性: ${broken.length}件)`;
-
-        if (data.nextOffset === null) break;
-        offset = data.nextOffset;
-      }
-
-      xLinkCheckModalBody.innerHTML = `
-        <div class="modal-hint">
-          全${total}件を確認しました。リンク切れの可能性があるもの: <strong>${broken.length}件</strong><br>
-          ※参考情報です。実際にリンクを開いて確認してください。
-        </div>
-        ${broken.length === 0 ? '<div style="margin-top:10px; color:var(--ok);">問題は見つかりませんでした。</div>' : `
-          <div style="margin-top:10px; display:flex; flex-direction:column; gap:6px;">
-            ${broken.map((r) => `
-              <div style="background:var(--stage); border:1px solid var(--line); border-radius:8px; padding:8px 10px;">
-                <div style="font-weight:700; font-size:13px; color:var(--ink);">${escapeHtml(r.name)}</div>
-                <a href="${escapeAttr(r.xLink)}" target="_blank" rel="noopener noreferrer" style="font-size:11px; color:var(--flash); word-break:break-all;">${escapeHtml(r.xLink)}</a>
-                <div style="font-size:10px; color:var(--ng); margin-top:2px;">${r.status ? `HTTP ${r.status}` : escapeHtml(r.error || 'エラー')}</div>
-              </div>
-            `).join('')}
-          </div>
-        `}
-      `;
-    } catch (e) {
-      xLinkCheckModalBody.innerHTML = `<div class="modal-hint">通信エラーが発生しました。オンラインの状態で再度お試しください。</div>`;
-    } finally {
-      checkXLinksBtn.disabled = false;
-      checkXLinksBtn.textContent = 'Xリンクをチェック';
-    }
-  }
-
-  checkXLinksBtn.addEventListener('click', runCheckXLinks);
-  xLinkCheckModalClose.addEventListener('click', () => xLinkCheckModal.classList.remove('show'));
-  xLinkCheckModal.addEventListener('click', (e) => {
-    if (e.target === xLinkCheckModal) xLinkCheckModal.classList.remove('show');
-  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

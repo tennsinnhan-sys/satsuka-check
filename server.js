@@ -559,51 +559,6 @@ post("/api/register-groups", async (req, res) => {
   }
 });
 
-// DB登録済みグループのXリンクが生きているか確認する(バッチ処理。1回の呼び出しでlimit件ずつ処理)
-// X(旧Twitter)はbotアクセスに厳しいため、エラー=リンク切れと断定はできない参考情報として扱う
-post("/api/check-x-links", async (req, res, env) => {
-  try {
-    const { offset = 0, limit = 30 } = req.body || {};
-    const groups = await getGroups(false, env);
-    const withXLink = groups.filter((g) => /^https?:\/\//i.test(g.xLink || ""));
-
-    const batch = withXLink.slice(offset, offset + limit);
-    const results = await Promise.all(
-      batch.map(async (g) => {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 8000);
-          const resp = await fetch(g.xLink, {
-            method: "GET",
-            redirect: "follow",
-            signal: controller.signal,
-            headers: {
-              "User-Agent":
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-            },
-          });
-          clearTimeout(timeout);
-          return { name: g.name, xLink: g.xLink, status: resp.status, ok: resp.status < 400 };
-        } catch (e) {
-          return { name: g.name, xLink: g.xLink, status: null, ok: false, error: String(e.message || e) };
-        }
-      })
-    );
-
-    res.json({
-      ok: true,
-      total: withXLink.length,
-      offset,
-      limit,
-      nextOffset: offset + limit < withXLink.length ? offset + limit : null,
-      results,
-    });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
-  }
-});
-
 // ---- 共有リンク(今見ている照合結果のスナップショットを保存し、短いIDで参照できるようにする) ----
 // 専用KVは用意せず、既存のHISTORY_KVをキー接頭辞("share:")で使い回す。30日で自動的に失効する。
 const SHARE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30日
