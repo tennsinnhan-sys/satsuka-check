@@ -2229,7 +2229,7 @@
     return `
       <div class="stage-card" ${borderStyle} draggable="true" data-stage-drag-name="${escapeAttr(slotKey(g))}">
         <span>⠿</span>
-        <span class="stage-card-name">${escapeHtml(g.name)}</span>
+        <span class="stage-card-name">${escapeHtml(g.name)}${g._overridden ? ' <span class="edit-mark" title="この場限定で編集済み">✎</span>' : ''}</span>
         <div class="badge-group">
           ${renderPriorityBadge(g)}
           ${renderPostConfirmBadge(g)}
@@ -2387,7 +2387,7 @@
             rowHtml += `
               <td class="grid-cell${blockIsNow ? ' grid-now' : ''}${dimClass}" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
                 <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
-                <div class="grid-cell-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}</div>
+                <div class="grid-cell-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}${g._overridden ? ' <span class="edit-mark" title="この場限定で編集済み">✎</span>' : ''}</div>
                 <div class="grid-badges">${renderPriorityBadge(g)}${renderPostConfirmBadge(g)}${renderBadge(photo)}${renderBadge(video)}</div>
               </td>`;
           }
