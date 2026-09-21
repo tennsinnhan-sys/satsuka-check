@@ -613,6 +613,89 @@ get("/api/share", async (req, res, env) => {
 });
 
 
+// ---- 当日のレギュ変更(この場限定編集)API ----
+// 専用KVは用意せず、既存のHISTORY_KVをキー接頭辞("edits:")で使い回す。
+// URLや貼り付けテキストはKVキーとして長すぎたり記号を含んだりするため、SHA-256でハッシュ化してから使う。
+const EDITS_TTL_SECONDS = 60 * 60 * 24 * 30; // 30日
+
+async function hashEditKey(key) {
+  const enc = new TextEncoder().encode(String(key));
+  const digest = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+get("/api/edits", async (req, res, env) => {
+  try {
+    if (!env.HISTORY_KV) return res.json({ ok: true, edits: null });
+    const key = (req.query && req.query.key) || "";
+    if (!key) return res.status(400).json({ ok: false, error: "keyが指定されていません" });
+    const hashed = await hashEditKey(key);
+    const data = await env.HISTORY_KV.get(`edits:${hashed}`, "json");
+    res.json({ ok: true, edits: data || null });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+post("/api/edits/set", async (req, res, env) => {
+  try {
+    if (!env.HISTORY_KV) return res.status(500).json({ ok: false, error: "この機能は利用できません(KVが未設定です)" });
+    const { key, groupName, data } = req.body || {};
+    if (!key || !groupName) return res.status(400).json({ ok: false, error: "必要な情報が不足しています" });
+    const hashed = await hashEditKey(key);
+    const kvKey = `edits:${hashed}`;
+    const existing = (await env.HISTORY_KV.get(kvKey, "json")) || { groups: {} };
+    existing.savedAt = Date.now();
+    existing.groups[groupName] = data;
+    await env.HISTORY_KV.put(kvKey, JSON.stringify(existing), { expirationTtl: EDITS_TTL_SECONDS });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+post("/api/edits/remove", async (req, res, env) => {
+  try {
+    if (!env.HISTORY_KV) return res.status(500).json({ ok: false, error: "この機能は利用できません(KVが未設定です)" });
+    const { key, groupName } = req.body || {};
+    if (!key || !groupName) return res.status(400).json({ ok: false, error: "必要な情報が不足しています" });
+    const hashed = await hashEditKey(key);
+    const kvKey = `edits:${hashed}`;
+    const existing = await env.HISTORY_KV.get(kvKey, "json");
+    if (existing && existing.groups) {
+      delete existing.groups[groupName];
+      if (Object.keys(existing.groups).length === 0) {
+        await env.HISTORY_KV.delete(kvKey);
+      } else {
+        existing.savedAt = Date.now();
+        await env.HISTORY_KV.put(kvKey, JSON.stringify(existing), { expirationTtl: EDITS_TTL_SECONDS });
+      }
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+post("/api/edits/clear", async (req, res, env) => {
+  try {
+    if (!env.HISTORY_KV) return res.status(500).json({ ok: false, error: "この機能は利用できません(KVが未設定です)" });
+    const { key } = req.body || {};
+    if (!key) return res.status(400).json({ ok: false, error: "keyが指定されていません" });
+    const hashed = await hashEditKey(key);
+    await env.HISTORY_KV.delete(`edits:${hashed}`);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
 // ---- 検索履歴API(サーバー側=Cloudflare KVに保存。全端末で共通) ----
 get("/api/history", async (req, res, env) => {
   try {
