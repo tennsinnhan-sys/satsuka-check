@@ -2222,6 +2222,7 @@
           <button type="button" data-view="tabs" class="${stageViewMode === 'tabs' ? 'active' : ''}">タブ</button>
           <button type="button" data-view="columns" class="${stageViewMode === 'columns' ? 'active' : ''}">横並び</button>
           ${hasTimeData ? `<button type="button" data-view="grid" class="${stageViewMode === 'grid' ? 'active' : ''}">グリッド</button>` : ''}
+          ${hasTimeData ? `<button type="button" data-view="favorites" class="${stageViewMode === 'favorites' ? 'active' : ''}">★のみ</button>` : ''}
         </div>
         <form class="stage-add-form" id="stageAddForm">
           <input type="text" id="stageAddInput" placeholder="ステージ名を入力(例: Aステージ)" maxlength="30" />
@@ -2353,6 +2354,56 @@
     return { columns, columnBlocks };
   }
 
+  // ★付きグループを、時間軸(行)はそのままに、優先度が高い順に左から重ならないレーンへ詰めて配置する。
+  // 優先度が高い(同点なら開始時刻が早い)方から処理し、その時点で一番左の空きレーンに割り当てる。
+  function computeFavoritesLanes() {
+    const slotMinutes = currentTimeSlots.map(timeToMinutes);
+    const blocks = [];
+    for (const g of currentGroups) {
+      if (g._unknown || getPriority(g) <= 0) continue;
+      const timeRange = currentPerformerTimes[slotKey(g)];
+      const m = timeRange && timeRange.match(/^(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})/);
+      if (!m) continue;
+      const startMin = timeToMinutes(m[1]);
+      const endMin = timeToMinutes(m[2]);
+      const startIdx = slotMinutes.findIndex((mn) => mn === startMin);
+      if (startIdx === -1) continue;
+      let endIdx = slotMinutes.findIndex((mn) => mn === endMin);
+      if (endIdx === -1) endIdx = currentTimeSlots.length;
+      const stageId = currentStageAssignment[slotKey(g)];
+      const stage = stageId ? stageById(stageId) : null;
+      blocks.push({
+        group: g,
+        startIdx,
+        span: Math.max(1, endIdx - startIdx),
+        priority: getPriority(g),
+        color: stage ? stage.color : null,
+        timeRange,
+      });
+    }
+
+    blocks.sort((a, b) => (b.priority - a.priority) || (a.startIdx - b.startIdx));
+
+    const lanes = []; // 各レーンに既に置いたブロックの一覧(時間の重なり判定用)
+    for (const block of blocks) {
+      let laneIdx = 0;
+      while (true) {
+        const lane = lanes[laneIdx] || (lanes[laneIdx] = []);
+        const overlaps = lane.some(
+          (b) => block.startIdx < b.startIdx + b.span && b.startIdx < block.startIdx + block.span
+        );
+        if (!overlaps) {
+          lane.push(block);
+          block.lane = laneIdx;
+          break;
+        }
+        laneIdx++;
+      }
+    }
+
+    return { blocks, laneCount: lanes.length };
+  }
+
   function renderStageGridView() {
     const { columns, columnBlocks } = computeGridColumns();
 
@@ -2429,13 +2480,68 @@
     `;
   }
 
+  // ★を付けたグループだけを、時間軸(行)はそのままに、優先度が高い順に左から詰めて表示する。
+  // 列はステージではなく「順位」を表す(セル左の線の色は、元々いたステージの色)。
+  function renderFavoritesGridView() {
+    const { blocks, laneCount } = computeFavoritesLanes();
+
+    if (blocks.length === 0) {
+      return `<div class="stage-list-empty">★を付けたグループがありません。名前の横の☆をタップして見たい度を設定してください。</div>`;
+    }
+
+    const headHtml = `
+      <tr>
+        <td class="grid-head-time">時間</td>
+        ${Array.from({ length: laneCount }, (_, i) => `<td class="grid-head-stage">${['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧'][i] || `${i + 1}位`}</td>`).join('')}
+      </tr>
+    `;
+
+    let rowsHtml = '';
+    for (let r = 0; r < currentTimeSlots.length; r++) {
+      let rowHtml = `<td class="grid-time-col">${escapeHtml(currentTimeSlots[r])}</td>`;
+      for (let lane = 0; lane < laneCount; lane++) {
+        const startingBlock = blocks.find((b) => b.lane === lane && b.startIdx === r);
+        if (startingBlock) {
+          const g = startingBlock.group;
+          const photo = chipInfo(g.photo);
+          const video = chipInfo(g.video);
+          const borderColor = startingBlock.color || 'var(--line)';
+          rowHtml += `
+            <td class="grid-cell" rowspan="${startingBlock.span}" style="border-left-color:${borderColor};" data-grid-name="${escapeAttr(slotKey(g))}">
+              <div class="grid-cell-time">${escapeHtml(startingBlock.timeRange)}</div>
+              <div class="grid-cell-name" title="${escapeAttr(g.name)}">${escapeHtml(g.name)}${g._overridden ? ' <span class="edit-mark" title="この場限定で編集済み">✎</span>' : ''}</div>
+              ${renderPriorityBadge(g)}
+              <div class="grid-badges">${renderPostConfirmBadge(g)}${renderBadge(photo)}${renderBadge(video)}</div>
+            </td>`;
+          continue;
+        }
+        const covered = blocks.some((b) => b.lane === lane && b.startIdx < r && b.startIdx + b.span > r);
+        if (covered) continue; // rowspanで既に埋まっているので何も出力しない
+        rowHtml += `<td class="grid-cell-empty">—</td>`;
+      }
+      rowsHtml += `<tr>${rowHtml}</tr>`;
+    }
+
+    return `
+      <div class="grid-hint">★を付けたグループのみ、見たい度が高い順に左詰めで表示しています(セル左の線の色は元のステージ色)。</div>
+      <div class="grid-scroll">
+        <table class="timetable-grid">
+          <thead>${headHtml}</thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
   // 照合結果(resultsEl)の中に、ステージ分けの表示(トグル・タブまたはカラム)を描画する。
   // 以前は結果一覧と別の場所(フォームのすぐ下)に分かれていたが、
   // 「照合結果そのものをステージ毎の表示にしたい」という要望に合わせて統合した。
   function renderStageResultsSection() {
     const view = stageViewMode === 'grid' && currentTimeSlots.length
       ? renderStageGridView()
-      : (stageViewMode === 'tabs' ? renderStageTabsView() : renderStageColumnsView());
+      : stageViewMode === 'favorites' && currentTimeSlots.length
+        ? renderFavoritesGridView()
+        : (stageViewMode === 'tabs' ? renderStageTabsView() : renderStageColumnsView());
     return `
       <div class="stage-panel">
         ${renderStageToolbar()}
@@ -3926,7 +4032,7 @@
     // url/listモードにはシート由来の時間情報が無いのでグリッド表示は使わない
     currentPerformerTimes = {};
     currentTimeSlots = [];
-    if (stageViewMode === 'grid') stageViewMode = 'tabs';
+    if (stageViewMode === 'grid' || stageViewMode === 'favorites') stageViewMode = 'tabs';
   }
 
   // 現在のステージ構成(ステージ一覧+割り当て)を、対応する履歴エントリに保存する
