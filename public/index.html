@@ -1860,6 +1860,8 @@
     });
   }
 
+  loadGroupPriorities();
+
   // グリッド表示中は1分ごとに再描画し、「今の時間」のハイライトを追従させる
   setInterval(() => {
     if (stageModeActive && stageViewMode === 'grid' && currentTimeSlots.length) {
@@ -3165,13 +3167,55 @@
     return '<span class="badge post-confirm-badge" title="掲載確認が必要">掲</span>';
   }
 
-  // ---- 見たいグループの優先度(★0〜3段階、端末に保存) ----
-  const GROUP_PRIORITY_KEY = 'satsuka_check_group_priority_v1';
+  // ---- 見たいグループの優先度(★0〜3段階、サーバー保存。PC/スマホ間で共有される) ----
+  // 描画のたびに通信すると遅くなるので、起動時に1回まとめて読み込みメモリに保持し、
+  // 変更時はその場で画面に反映しつつ、裏側でサーバーへ保存する。
   let groupPriorities = {};
-  try {
-    groupPriorities = JSON.parse(localStorage.getItem(GROUP_PRIORITY_KEY) || '{}');
-  } catch (e) {
-    groupPriorities = {};
+
+  // 以前の端末保存(localStorage)版で付けていた★を、サーバー保存への切り替え時に
+  // 一度だけサーバーへアップロードして引き継ぐ。移行済みならlocalStorageから消し、
+  // 次回以降は何もしない(サーバー側のデータを勝手に上書きしないため)。
+  const OLD_GROUP_PRIORITY_KEY = 'satsuka_check_group_priority_v1';
+
+  async function migrateLocalPrioritiesIfNeeded() {
+    let localData = null;
+    try {
+      const raw = localStorage.getItem(OLD_GROUP_PRIORITY_KEY);
+      if (raw) localData = JSON.parse(raw);
+    } catch (e) {
+      // 読み取れなければ移行対象なしとして扱う
+    }
+    if (!localData || Object.keys(localData).length === 0) return;
+
+    try {
+      await Promise.all(
+        Object.entries(localData).map(([name, level]) =>
+          fetch('/api/priorities/set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, level }),
+          })
+        )
+      );
+      localStorage.removeItem(OLD_GROUP_PRIORITY_KEY); // 移行完了。二重アップロード防止のため消す
+    } catch (e) {
+      // オフライン等で移行に失敗した場合は、次回起動時にもう一度試せるようlocalStorageは残しておく
+    }
+  }
+
+  async function loadGroupPriorities() {
+    try {
+      await migrateLocalPrioritiesIfNeeded();
+      const res = await fetch('/api/priorities');
+      const data = await res.json();
+      if (data.ok) {
+        groupPriorities = data.priorities || {};
+        // まだ何も検索していない初期状態では再描画しない(不要な「見つかりません」表示を防ぐ)
+        if (currentGroups.length > 0 || currentNotFound.length > 0) draw();
+      }
+    } catch (e) {
+      // オフライン等。この端末では★が0件として表示されるだけで、アプリ自体は動作する
+    }
   }
 
   function priorityKeyFor(name) {
@@ -3190,7 +3234,13 @@
     } else {
       delete groupPriorities[key];
     }
-    try { localStorage.setItem(GROUP_PRIORITY_KEY, JSON.stringify(groupPriorities)); } catch (e) {}
+    fetch('/api/priorities/set', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: key, level }),
+    }).catch(() => {
+      // オフライン等で保存できなくても、今の画面上の表示はそのまま反映させる
+    });
   }
 
   function renderPriorityBadge(g) {
