@@ -1140,6 +1140,20 @@
     min-height: 60px;
     margin-bottom: 16px;
   }
+  .modal-source-url {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--stage-deep);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px 10px;
+    color: var(--ink);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    margin-bottom: 16px;
+    outline: none;
+  }
+  .modal-source-url:focus { border-color: var(--flash); }
   .modal-footer {
     display: flex;
     justify-content: space-between;
@@ -1710,6 +1724,9 @@
         <div class="modal-label">メモ</div>
         <textarea class="modal-memo" id="editMemo" placeholder="例: フロア後方のみ撮影OK"></textarea>
 
+        <div class="modal-label">変更元URL(告知ツイート等)</div>
+        <input type="url" class="modal-source-url" id="editSourceUrl" placeholder="https://x.com/..." />
+
         <div class="modal-footer">
           <button type="button" class="modal-reset" id="editModalReset">元に戻す</button>
           <button type="button" class="modal-save" id="editModalSave">保存</button>
@@ -1771,6 +1788,7 @@
   const editPhotoOptions = document.getElementById('editPhotoOptions');
   const editVideoOptions = document.getElementById('editVideoOptions');
   const editMemo = document.getElementById('editMemo');
+  const editSourceUrl = document.getElementById('editSourceUrl');
   const editPostConfirmToggle = document.getElementById('editPostConfirmToggle');
   const editModalClose = document.getElementById('editModalClose');
   const editModalReset = document.getElementById('editModalReset');
@@ -2665,12 +2683,15 @@
       for (const g of currentGroups) {
         const saved = savedEdits.groups[g.name];
         if (saved) {
-          g._original = { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm, _unknown: g._unknown };
+          g._original = { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm, editSourceUrl: g.editSourceUrl, _unknown: g._unknown };
           g.photo = saved.photo;
           g.video = saved.video;
           g.note = saved.note;
           if (Object.prototype.hasOwnProperty.call(saved, 'needsPostConfirm')) {
             g.needsPostConfirm = saved.needsPostConfirm;
+          }
+          if (Object.prototype.hasOwnProperty.call(saved, 'editSourceUrl')) {
+            g.editSourceUrl = saved.editSourceUrl;
           }
           g._overridden = true;
           g._unknown = false;
@@ -3016,6 +3037,10 @@
   // グループの「𝕏 公式 / 𝕏を検索 / ソース」リンク一覧を組み立てる(通常カード・詳細モーダル共通)
   function buildGroupLinks(g) {
     const links = [];
+    // 「この場限定」の当日レギュ変更の参照元(告知ツイート等)。備考とは別に、リンクとして分かるようにする。
+    if (g._overridden && isUrl(g.editSourceUrl)) {
+      links.push({ href: g.editSourceUrl, label: '📌 レギュ変更元' });
+    }
     if (isUrl(g.xLink)) {
       links.push({ href: g.xLink, label: '𝕏 公式' });
     } else {
@@ -3959,6 +3984,7 @@
 
     editModalName.textContent = g.name;
     editMemo.value = g.note || '';
+    editSourceUrl.value = g.editSourceUrl || '';
 
     let selectedPhoto = g.photo;
     let selectedVideo = g.video;
@@ -3978,17 +4004,18 @@
 
     editModalSave.onclick = () => {
       if (!g._overridden) {
-        g._original = { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm, _unknown: g._unknown };
+        g._original = { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm, editSourceUrl: g.editSourceUrl, _unknown: g._unknown };
       }
       g.photo = selectedPhoto;
       g.video = selectedVideo;
       g.note = editMemo.value.trim();
       g.needsPostConfirm = selectedPostConfirm;
+      g.editSourceUrl = editSourceUrl.value.trim();
       g._overridden = true;
       g._unknown = false;
       const editKey = currentEditKey();
       if (editKey) {
-        setEditForGroup(editKey, g.name, { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm });
+        setEditForGroup(editKey, g.name, { photo: g.photo, video: g.video, note: g.note, needsPostConfirm: g.needsPostConfirm, editSourceUrl: g.editSourceUrl });
       }
       closeEditModal();
       draw();
@@ -4000,6 +4027,7 @@
         g.video = g._original.video;
         g.note = g._original.note;
         g.needsPostConfirm = g._original.needsPostConfirm;
+        g.editSourceUrl = g._original.editSourceUrl;
         g._unknown = !!g._original._unknown;
         delete g._original;
         delete g._overridden;
