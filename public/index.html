@@ -1470,6 +1470,23 @@
 
   /* --- 画像書き出し専用ビュー(html2canvasで撮影する要素) --- */
   .export-wrap {
+    /* ダークモード中でも、画像で保存した時は常にライトモードの配色になるよう固定する */
+    --stage: #eef1f6;
+    --stage-deep: #e4e9f0;
+    --panel: #fbfcfd;
+    --line: #c4cbd9;
+    --ink: #1c2333;
+    --ink-dim: #5b6b8c;
+    --muted: #8993a8;
+    --flash: #5b6b8c;
+    --flash-ink: #ffffff;
+    --edited: #8a5a0b;
+    --ok: #4a8f6b;
+    --ng: #b5555a;
+    --maybe: #c98a2e;
+    --heroines: #c968a0;
+    --partial: #4a7f9e;
+
     position: fixed;
     left: -9999px;
     top: 0;
