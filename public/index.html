@@ -3568,6 +3568,16 @@
 
 
 
+  // 指定時間以内に終わらなければ諦めて失敗扱いにする(モバイル回線や描画の詰まりで
+  // 「書き出し中」のまま永遠に止まってしまうのを防ぐ)
+  function withTimeout(promise, ms, message) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  }
+
   async function exportAsImage() {
     if (typeof html2canvas === 'undefined') {
       alert('画像化ライブラリの読み込みに失敗しました。オンラインの状態で再度お試しください。');
@@ -3597,34 +3607,44 @@
     document.body.appendChild(wrap);
 
     try {
-      // 画像(イベントサムネ)の読み込みを待つ(失敗した場合は諦めて進める)
+      // 画像(イベントサムネ)の読み込みを待つ(失敗・タイムアウトした場合は諦めて進める)
       const imgs = wrap.querySelectorAll('img');
       await Promise.all(Array.from(imgs).map((img) => {
         if (img.complete) return Promise.resolve();
-        return new Promise((resolve) => {
-          img.addEventListener('load', resolve, { once: true });
-          img.addEventListener('error', () => { img.remove(); resolve(); }, { once: true });
-        });
+        return withTimeout(
+          new Promise((resolve) => {
+            img.addEventListener('load', resolve, { once: true });
+            img.addEventListener('error', resolve, { once: true });
+          }),
+          8000,
+          'サムネイル画像の読み込みがタイムアウトしました'
+        ).catch(() => {}).finally(() => { if (!img.complete) img.remove(); });
       }));
 
-      const canvas = await html2canvas(wrap, {
-        backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--panel').trim() || '#ffffff',
-        scale: 2,
-        useCORS: true,
-        allowTaint: false,
-      });
+      // モバイルはcanvasのサイズ上限が低いことがあるため、スマホでは解像度を少し落とす
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const canvas = await withTimeout(
+        html2canvas(wrap, {
+          backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--panel').trim() || '#ffffff',
+          scale: isMobile ? 1.5 : 2,
+          useCORS: true,
+          allowTaint: false,
+        }),
+        25000,
+        '画像の生成がタイムアウトしました(内容が大きすぎる可能性があります)'
+      );
 
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        const link = document.createElement('a');
-        const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-        link.download = `satsuka-check_${stamp}.png`;
-        link.href = URL.createObjectURL(blob);
-        link.click();
-        URL.revokeObjectURL(link.href);
-      }, 'image/png');
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('画像データの生成に失敗しました');
+
+      const link = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+      link.download = `satsuka-check_${stamp}.png`;
+      link.href = URL.createObjectURL(blob);
+      link.click();
+      URL.revokeObjectURL(link.href);
     } catch (e) {
-      alert('画像の書き出しに失敗しました: ' + e.message);
+      alert('画像の書き出しに失敗しました: ' + e.message + '\n表示件数を絞る(フィルタ・検索を使う)と改善することがあります。');
     } finally {
       document.body.removeChild(wrap);
       if (btn) {
