@@ -34,6 +34,18 @@ function createRes() {
   return { res, promise };
 }
 
+// ---- エラー応答 ----
+// 例外の中身(Notion APIのエラー本文や内部の例外メッセージ)をそのまま利用者に返すと、
+// 内部構成の手がかりを外部に漏らしてしまう。詳細はサーバーログ(console.error)にだけ残し、
+// 利用者には一般的な文言を返す。PublicErrorは「利用者に見せてよい文言」だけを運ぶための例外。
+class PublicError extends Error {}
+
+function fail(res, e, fallback) {
+  console.error(e);
+  const message = e instanceof PublicError ? e.message : fallback;
+  res.status(500).json({ ok: false, error: message });
+}
+
 if (!process.env.NOTION_TOKEN) {
   console.warn(
     "[警告] NOTION_TOKEN が設定されていません。`wrangler secret put NOTION_TOKEN` で設定してください(ローカル開発時は .dev.vars ファイルでも可)。"
@@ -72,8 +84,10 @@ async function notionDatabaseQuery(cursor) {
     body: JSON.stringify(cursor ? { start_cursor: cursor, page_size: 100 } : { page_size: 100 }),
   });
   if (!resp.ok) {
+    // エラー本文はログにだけ残し、利用者にはHTTPステータスまでを伝える
     const errText = await resp.text().catch(() => "");
-    throw new Error(`Notion API エラー (HTTP ${resp.status}): ${errText}`);
+    console.error(`Notion API エラー (HTTP ${resp.status}): ${errText}`);
+    throw new PublicError(`Notion API エラー (HTTP ${resp.status})`);
   }
   return resp.json();
 }
@@ -97,8 +111,10 @@ async function notionCreateGroupPage(name, checkedDate, note) {
     }),
   });
   if (!resp.ok) {
+    // エラー本文はログにだけ残し、利用者にはHTTPステータスまでを伝える
     const errText = await resp.text().catch(() => "");
-    throw new Error(`Notion API エラー (HTTP ${resp.status}): ${errText}`);
+    console.error(`Notion API エラー (HTTP ${resp.status}): ${errText}`);
+    throw new PublicError(`Notion API エラー (HTTP ${resp.status})`);
   }
   return resp.json();
 }
@@ -506,8 +522,7 @@ get("/api/groups", async (req, res, env) => {
     const groups = await getGroups(false, env);
     res.json({ ok: true, groups, dbTotal: groups.length, fetchedAt: Date.now() });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "データベースの取得に失敗しました。時間をおいて再度お試しください。");
   }
 });
 
@@ -516,8 +531,7 @@ post("/api/refresh", async (req, res, env) => {
     const groups = await getGroups(true, env);
     res.json({ ok: true, count: groups.length });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "データベースの再取得に失敗しました。時間をおいて再度お試しください。");
   }
 });
 
@@ -544,7 +558,8 @@ post("/api/register-groups", async (req, res) => {
         await notionCreateGroupPage(name, today, note);
         results.push({ name, ok: true });
       } catch (e) {
-        results.push({ name, ok: false, error: String(e.message || e) });
+        console.error(e);
+        results.push({ name, ok: false, error: e instanceof PublicError ? e.message : "登録に失敗しました" });
       }
     }
 
@@ -554,8 +569,7 @@ post("/api/register-groups", async (req, res) => {
     const successCount = results.filter((r) => r.ok).length;
     res.json({ ok: true, successCount, results });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "Notionへの登録に失敗しました。時間をおいて再度お試しください。");
   }
 });
 
@@ -565,9 +579,18 @@ const SHARE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30日
 
 function generateShareId() {
   const chars = "abcdefghijkmnpqrstuvwxyzACDEFGHJKLMNPQRSTUVWXYZ23456789"; // 紛らわしい文字(0/O/l/1等)は除く
+  // 共有リンクは「URLを知っている人だけが見られる」仕組みなので、IDは推測できない乱数で作る。
+  // Math.random()は予測可能な疑似乱数のため使わず、暗号学的乱数(crypto.getRandomValues)を使う。
+  // 256をchars.lengthで割り切れない分の偏りを避けるため、端数にあたる値は捨てて引き直す。
+  const limit = 256 - (256 % chars.length);
   let id = "";
-  for (let i = 0; i < 8; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)];
+  while (id.length < 8) {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    for (const b of bytes) {
+      if (b >= limit) continue;
+      id += chars[b % chars.length];
+      if (id.length === 8) break;
+    }
   }
   return id;
 }
@@ -587,8 +610,7 @@ post("/api/share", async (req, res, env) => {
     });
     res.json({ ok: true, id });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "共有リンクの処理に失敗しました。時間をおいて再度お試しください。");
   }
 });
 
@@ -607,8 +629,7 @@ get("/api/share", async (req, res, env) => {
     }
     res.json({ ok: true, snapshot: JSON.parse(raw) });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "共有リンクの処理に失敗しました。時間をおいて再度お試しください。");
   }
 });
 
@@ -635,8 +656,7 @@ get("/api/edits", async (req, res, env) => {
     const data = await env.HISTORY_KV.get(`edits:${hashed}`, "json");
     res.json({ ok: true, edits: data || null });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "レギュ変更の読み込みに失敗しました。");
   }
 });
 
@@ -653,8 +673,7 @@ post("/api/edits/set", async (req, res, env) => {
     await env.HISTORY_KV.put(kvKey, JSON.stringify(existing), { expirationTtl: EDITS_TTL_SECONDS });
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "レギュ変更の保存に失敗しました。");
   }
 });
 
@@ -677,8 +696,7 @@ post("/api/edits/remove", async (req, res, env) => {
     }
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "レギュ変更の取り消しに失敗しました。");
   }
 });
 
@@ -691,8 +709,39 @@ post("/api/edits/clear", async (req, res, env) => {
     await env.HISTORY_KV.delete(`edits:${hashed}`);
     res.json({ ok: true });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "レギュ変更のリセットに失敗しました。");
+  }
+});
+
+// ---- 見たい度(★0〜3)の保存 ----
+// グループ名をキーにした全体共有の1つのマップとして保存する(URLごとではなく、常に共通)
+const PRIORITIES_KV_KEY = "priorities:global";
+
+get("/api/priorities", async (req, res, env) => {
+  try {
+    if (!env.HISTORY_KV) return res.json({ ok: true, priorities: {} });
+    const data = await env.HISTORY_KV.get(PRIORITIES_KV_KEY, "json");
+    res.json({ ok: true, priorities: data || {} });
+  } catch (e) {
+    fail(res, e, "★の読み込みに失敗しました。");
+  }
+});
+
+post("/api/priorities/set", async (req, res, env) => {
+  try {
+    if (!env.HISTORY_KV) return res.status(500).json({ ok: false, error: "この機能は利用できません(KVが未設定です)" });
+    const { name, level } = req.body || {};
+    if (!name) return res.status(400).json({ ok: false, error: "nameが指定されていません" });
+    const data = (await env.HISTORY_KV.get(PRIORITIES_KV_KEY, "json")) || {};
+    if (level > 0) {
+      data[name] = level;
+    } else {
+      delete data[name];
+    }
+    await env.HISTORY_KV.put(PRIORITIES_KV_KEY, JSON.stringify(data));
+    res.json({ ok: true });
+  } catch (e) {
+    fail(res, e, "★の保存に失敗しました。");
   }
 });
 
@@ -706,8 +755,7 @@ get("/api/history", async (req, res, env) => {
     ]);
     res.json({ ok: true, url, list, timetable });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "履歴の読み込みに失敗しました。");
   }
 });
 
@@ -738,8 +786,7 @@ post("/api/history/add", async (req, res, env) => {
     await saveHistoryKV(env, kind, capped);
     res.json({ ok: true, list: capped });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "履歴の保存に失敗しました。");
   }
 });
 
@@ -753,8 +800,7 @@ post("/api/history/remove", async (req, res, env) => {
     await saveHistoryKV(env, kind, list);
     res.json({ ok: true, list });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "履歴の削除に失敗しました。");
   }
 });
 
@@ -767,8 +813,7 @@ post("/api/history/clear", async (req, res, env) => {
     await saveHistoryKV(env, kind, []);
     res.json({ ok: true, list: [] });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "履歴の削除に失敗しました。");
   }
 });
 
@@ -1159,8 +1204,7 @@ post("/api/lookup", async (req, res, env) => {
       siteRuleApplied: candidates.length > 0,
     });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "ページの取得または照合に失敗しました。URLをご確認のうえ、時間をおいて再度お試しください。");
   }
 });
 
@@ -1191,8 +1235,7 @@ post("/api/lookup-list", async (req, res, env) => {
       dbTotal: groups.length,
     });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "照合に失敗しました。時間をおいて再度お試しください。");
   }
 });
 
@@ -1344,6 +1387,27 @@ async function fetchStageColorsFromSheetsApi(sheetId, gid, stageCols) {
   }
 }
 
+// 入力されたURLがGoogleスプレッドシート(https://docs.google.com/spreadsheets/...)かを検証し、
+// 正しければURLオブジェクトを、そうでなければnullを返す。
+// "docs.google.com/..." のように https:// を省いて貼られた場合は補って解釈する。
+function parseGoogleSheetsUrl(input) {
+  let text = String(input || "").trim();
+  if (!text) return null;
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) text = `https://${text}`;
+  let parsed;
+  try {
+    parsed = new URL(text);
+  } catch (e) {
+    return null;
+  }
+  if (parsed.protocol === "http:") parsed.protocol = "https:";
+  if (parsed.protocol !== "https:") return null;
+  if (parsed.hostname !== "docs.google.com") return null;
+  if (parsed.username || parsed.password || parsed.port) return null;
+  if (!parsed.pathname.startsWith("/spreadsheets/")) return null;
+  return parsed;
+}
+
 post("/api/timetable-import", async (req, res, env) => {
   try {
     const { url } = req.body || {};
@@ -1355,6 +1419,14 @@ post("/api/timetable-import", async (req, res, env) => {
     // 「ウェブに公開」で発行されるURL(/spreadsheets/d/e/{publishedId}/pub...)の両方に対応。
     // 後者を使えば、共有リンクは「編集者」のまま他社と共有しつつ、
     // アプリの読み込み専用には別の安定した公開URLを使う、という両立ができる。
+    // 取得先はGoogleスプレッドシート(docs.google.com)に限定する。
+    // ここを検証しないと、"/spreadsheets/d/e/" を含むだけの無関係なURLを
+    // このサーバーに取得させる踏み台(SSRF)として悪用できてしまう。
+    const sheetUrl = parseGoogleSheetsUrl(url);
+    if (!sheetUrl) {
+      return res.status(400).json({ ok: false, error: "GoogleスプレッドシートのURLではないようです" });
+    }
+
     const publishedMatch = url.match(/\/spreadsheets\/d\/e\/([a-zA-Z0-9_-]+)/);
     const gidMatch = url.match(/[#&?]gid=(\d+)/);
     const gid = gidMatch ? gidMatch[1] : "0";
@@ -1365,7 +1437,7 @@ post("/api/timetable-import", async (req, res, env) => {
       if (/output=csv/i.test(url)) {
         // すでにCSV出力形式で公開されたURL(gid指定なしのことが多い)は、そのまま使う。
         // gidを勝手に付け足すと、意図した公開タブと違うシートを指してしまう恐れがあるため。
-        csvUrl = url;
+        csvUrl = sheetUrl.href; // 検証済みのURL(https://docs.google.com/...)を使う
       } else if (gidMatch) {
         csvUrl = `https://docs.google.com/spreadsheets/d/e/${publishedMatch[1]}/pub?gid=${gid}&single=true&output=csv`;
       } else {
@@ -1461,8 +1533,7 @@ post("/api/timetable-import", async (req, res, env) => {
       dbTotal: groups.length,
     });
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ ok: false, error: String(e.message || e) });
+    fail(res, e, "タイムテーブルの取り込みに失敗しました。時間をおいて再度お試しください。");
   }
 });
 
