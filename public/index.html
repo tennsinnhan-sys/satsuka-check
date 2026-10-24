@@ -716,6 +716,32 @@
     font-size: 11px;
   }
   .timetable-template-link:hover { opacity: 0.8; }
+  .timetable-image-row {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+  }
+  .timetable-or {
+    font-size: 11px;
+    color: var(--ink-dim);
+  }
+  .timetable-image-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--flash);
+    background: none;
+    border: 1px solid var(--flash);
+    border-radius: 12px;
+    padding: 10px 16px;
+    cursor: pointer;
+  }
+  .timetable-image-btn:hover { background: color-mix(in srgb, var(--flash) 8%, transparent); }
+  .timetable-image-btn:disabled { opacity: 0.5; cursor: default; }
 
   .not-found {
     margin-top: 26px;
@@ -1721,6 +1747,12 @@
           <a href="/timetable-template.xlsx" download class="timetable-template-link">📥 テンプレート(.xlsx)をダウンロード</a>
         </div>
         <button class="go" id="timetableGoBtn" type="submit">取り込む</button>
+        <div class="timetable-image-row">
+          <span class="timetable-or">または</span>
+          <button type="button" class="timetable-image-btn" id="timetableImageBtn">📷 画像から読み取る</button>
+          <input type="file" id="timetableImageInput" accept="image/*" hidden>
+          <div class="timetable-hint">告知画像などのタイムテーブルを選ぶと、出演時間とステージを読み取って時間順に並べます。PCでは画像を貼り付け(Ctrl+V)でもOK。読み取りミスがあることもあるので、気になる枠は元画像で確認してください。</div>
+        </div>
       </div>
     </form>
 
@@ -1799,6 +1831,8 @@
   const timetableForm = document.getElementById('timetableForm');
   const timetableInput = document.getElementById('timetableInput');
   const timetableGoBtn = document.getElementById('timetableGoBtn');
+  const timetableImageBtn = document.getElementById('timetableImageBtn');
+  const timetableImageInput = document.getElementById('timetableImageInput');
   const tabUrl = document.getElementById('tabUrl');
   const tabList = document.getElementById('tabList');
   const tabTimetable = document.getElementById('tabTimetable');
@@ -2065,10 +2099,10 @@
 
     const rows = list.map((it) => {
       const mainText = kind === 'url' ? (it.title || it.url)
-        : kind === 'timetable' ? (it.eventTitle || it.url)
+        : kind === 'timetable' ? (it.eventTitle || (String(it.url || '').startsWith('image:') ? '画像から読み取ったタイムテーブル' : it.url))
         : (it.eventName || it.text.split('\n')[0]);
       const subText = kind === 'url' ? it.url
-        : kind === 'timetable' ? `${(it.stages || []).length}ステージ`
+        : kind === 'timetable' ? `${String(it.url || '').startsWith('image:') ? '📷 画像 ・ ' : ''}${(it.stages || (it.extracted && it.extracted.stages) || []).length}ステージ`
         : it.text.replace(/\n/g, ' / ');
       const delBtnHtml = historyIsFromCache ? '' : `<button type="button" class="hi-del" title="この履歴を削除" data-del-ts="${it.ts}">✕</button>`;
       return `
@@ -2100,6 +2134,9 @@
         if (kind === 'url') {
           urlInput.value = entry.url;
           form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit', { cancelable: true }));
+        } else if (kind === 'timetable' && entry.extracted && String(entry.url || '').startsWith('image:')) {
+          // 画像から読み取った履歴は、保存済みの読み取り結果でDB照合だけやり直す(画像の再送信は不要)
+          runTimetableFromExtracted(entry);
         } else if (kind === 'timetable') {
           timetableInput.value = entry.url;
           timetableForm.requestSubmit ? timetableForm.requestSubmit() : timetableForm.dispatchEvent(new Event('submit', { cancelable: true }));
@@ -4578,6 +4615,224 @@
     }
   });
 
+  // タイムテーブル(スプレッドシート/画像)の照合結果を画面に反映する共通処理
+  // sourceKey: 当日レギュ変更・端末キャッシュ・履歴の識別キー(スプレッドシートはURL、画像は "image:…")
+  async function applyTimetableResult(data, { sourceKey, historyEntry }) {
+    dbCountEl.textContent = data.dbTotal;
+    statusEl.textContent = '';
+
+    const notFoundEntries = data.notFound || [];
+    const mergedList = [
+      ...data.groups.map((g) => ({ ...g, _unknown: false })),
+      ...notFoundEntries.map((n) => ({ name: n.name, pagePos: n.pagePos, _unknown: true, suggestions: n.suggestions || [] })),
+    ];
+    mergedList.sort((a, b) => (a.pagePos ?? 0) - (b.pagePos ?? 0));
+
+    const orderToKeep = pendingHistoryOrder;
+    currentGroups = orderToKeep ? applySavedOrder(mergedList, orderToKeep) : mergedList;
+    pendingHistoryOrder = null;
+
+    // シートから読み取ったステージ構成を、常にベースとして計算しておく
+    // (スプレッドシートのステージ名セルに色が設定されていればそれを使い、
+    //  無ければ従来通り自動パレットから順番に割り当てる)
+    const freshStages = (data.stages || []).map((name, i) => ({
+      id: `stage_${i}_${Date.now()}`,
+      name,
+      color: (data.stageColors && data.stageColors[name]) || STAGE_COLORS[i % STAGE_COLORS.length],
+    }));
+    const nameToId = new Map(freshStages.map((s) => [s.name, s.id]));
+    const freshStageAssignment = {};
+    for (const [pagePos, stageName] of Object.entries(data.stageAssignment || {})) {
+      const id = nameToId.get(stageName);
+      if (id) freshStageAssignment[`pos:${pagePos}`] = id;
+    }
+
+    // 履歴から呼び出した場合、保存済みのステージ割り当てが現在のキー形式(pos:数字)と
+    // 互換性があるかを確認する。以前のバージョンで保存された旧形式(名前ベース)の履歴や、
+    // 空の割り当てだと、キーが噛み合わず全員「未振り分け」になってしまうため、
+    // その場合はシートから読み取ったフレッシュな構成にフォールバックする。
+    const pendingAssignmentKeys = pendingStageState && pendingStageState.stageAssignment
+      ? Object.keys(pendingStageState.stageAssignment)
+      : [];
+    const isPendingCompatible = pendingStageState
+      && pendingAssignmentKeys.length > 0
+      && pendingAssignmentKeys.every((k) => k.startsWith('pos:'));
+
+    if (isPendingCompatible) {
+      currentStages = pendingStageState.stages || [];
+      currentStageAssignment = pendingStageState.stageAssignment || {};
+    } else {
+      currentStages = freshStages;
+      currentStageAssignment = freshStageAssignment;
+    }
+    pendingStageState = null;
+    activeStageTabId = currentStages[0] ? currentStages[0].id : 'unassigned';
+    stageModeActive = true;
+    currentPerformerTimes = {};
+    for (const [pagePos, timeRange] of Object.entries(data.performerTimes || {})) {
+      currentPerformerTimes[`pos:${pagePos}`] = timeRange;
+    }
+    currentTimeSlots = data.timeSlots || [];
+    if (currentTimeSlots.length) stageViewMode = 'grid';
+
+    currentNotFound = [];
+    currentEventInfo = data.eventTitle ? { title: data.eventTitle } : null;
+    currentEditUrl = null;
+    currentListQuery = null;
+    currentTimetableUrl = sourceKey;
+    currentUnknownOnPage = notFoundEntries.map((n) => n.name);
+    addHistoryEntry('timetable', historyEntry);
+    saveTimetableCache({
+      url: sourceKey,
+      eventTitle: data.eventTitle || '',
+      groups: currentGroups,
+      stages: currentStages,
+      stageAssignment: currentStageAssignment,
+      performerTimes: currentPerformerTimes,
+      timeSlots: currentTimeSlots,
+      dbTotal: data.dbTotal,
+    });
+    await restoreSavedEdits(currentTimetableUrl);
+    draw();
+  }
+
+  // ---- タイムテーブル画像の読み取り ----
+  // 送信前に画面側で縮小・JPEG化して、通信量とサーバーの負担を抑える(文字が潰れない程度の大きさは残す)
+  const TIMETABLE_IMAGE_MAX_SIDE = 2400;
+
+  async function prepareImageForUpload(file) {
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error('decode'));
+        el.src = objectUrl;
+      });
+      const scale = Math.min(1, TIMETABLE_IMAGE_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff'; // 透過PNGの透明部分が黒くならないように
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      return { base64: dataUrl.slice(dataUrl.indexOf(',') + 1), mimeType: 'image/jpeg' };
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  function setTimetableBusy(busy, label) {
+    timetableGoBtn.disabled = busy;
+    timetableImageBtn.disabled = busy;
+    timetableImageBtn.textContent = busy && label ? label : '📷 画像から読み取る';
+  }
+
+  async function runTimetableImage(file) {
+    if (!file || timetableImageBtn.disabled) return;
+    if (file.type && !file.type.startsWith('image/')) {
+      statusEl.className = 'error';
+      statusEl.textContent = '画像ファイルを選んでください';
+      return;
+    }
+    pendingHistoryOrder = null;
+    pendingStageState = null;
+    setTimetableBusy(true, '読み取り中…');
+    statusEl.className = '';
+    statusEl.textContent = '画像からタイムテーブルを読み取っています…(10〜30秒ほどかかります)';
+    resultsEl.innerHTML = '';
+    try {
+      let prepared;
+      try {
+        prepared = await prepareImageForUpload(file);
+      } catch (e) {
+        statusEl.className = 'error';
+        statusEl.textContent = 'この画像は開けませんでした。JPEGやPNGの画像(スクリーンショット等)でお試しください。';
+        return;
+      }
+      const res = await fetch('/api/timetable-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: prepared.base64, mimeType: prepared.mimeType }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        statusEl.className = 'error';
+        statusEl.textContent = data.error || '画像の読み取りに失敗しました';
+        return;
+      }
+      await applyTimetableResult(data, {
+        sourceKey: data.sourceKey,
+        historyEntry: { url: data.sourceKey, eventTitle: data.eventTitle || '', source: 'image', extracted: data.extracted },
+      });
+    } catch (err) {
+      statusEl.className = 'error';
+      statusEl.textContent = '画像の読み取りに失敗しました(オフライン、または通信エラー)';
+    } finally {
+      setTimetableBusy(false);
+    }
+  }
+
+  // 履歴から、画像で読み取ったタイムテーブルを呼び出す
+  async function runTimetableFromExtracted(entry) {
+    setTimetableBusy(true, '照合中…');
+    statusEl.className = '';
+    statusEl.textContent = '保存済みのタイムテーブルをDBと照合しています…';
+    resultsEl.innerHTML = '';
+    try {
+      const res = await fetch('/api/timetable-extracted', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ extracted: entry.extracted }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        statusEl.className = 'error';
+        statusEl.textContent = data.error || '照合に失敗しました';
+        return;
+      }
+      await applyTimetableResult(data, {
+        sourceKey: data.sourceKey,
+        historyEntry: { url: data.sourceKey, eventTitle: data.eventTitle || '', source: 'image', extracted: data.extracted },
+      });
+    } catch (err) {
+      // オフライン時は、端末に保存済みの前回分が同じタイムテーブルなら復元する
+      const cached = loadTimetableCache();
+      if (cached && cached.url === entry.url) {
+        restoreTimetableCache(cached);
+        statusEl.className = '';
+        statusEl.textContent = '';
+        draw();
+      } else {
+        statusEl.className = 'error';
+        statusEl.textContent = 'オフラインのため照合できませんでした';
+      }
+    } finally {
+      setTimetableBusy(false);
+    }
+  }
+
+  timetableImageBtn.addEventListener('click', () => timetableImageInput.click());
+  timetableImageInput.addEventListener('change', () => {
+    const file = timetableImageInput.files && timetableImageInput.files[0];
+    timetableImageInput.value = ''; // 同じ画像を続けて選んでも反応するように
+    runTimetableImage(file);
+  });
+  // PC向け: タイムテーブル取り込みタブを開いている時に、画像を貼り付けたら読み取る
+  document.addEventListener('paste', (e) => {
+    if (currentTabMode !== 'timetable') return;
+    const items = (e.clipboardData && e.clipboardData.items) || [];
+    for (const item of items) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        e.preventDefault();
+        runTimetableImage(item.getAsFile());
+        return;
+      }
+    }
+  });
+
   timetableForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const url = timetableInput.value.trim();
@@ -4603,82 +4858,7 @@
         return;
       }
 
-      dbCountEl.textContent = data.dbTotal;
-      statusEl.textContent = '';
-
-      const notFoundEntries = data.notFound || [];
-      const mergedList = [
-        ...data.groups.map((g) => ({ ...g, _unknown: false })),
-        ...notFoundEntries.map((n) => ({ name: n.name, pagePos: n.pagePos, _unknown: true, suggestions: n.suggestions || [] })),
-      ];
-      mergedList.sort((a, b) => (a.pagePos ?? 0) - (b.pagePos ?? 0));
-
-      const orderToKeep = pendingHistoryOrder;
-      currentGroups = orderToKeep ? applySavedOrder(mergedList, orderToKeep) : mergedList;
-      pendingHistoryOrder = null;
-
-      // シートから読み取ったステージ構成を、常にベースとして計算しておく
-      // (スプレッドシートのステージ名セルに色が設定されていればそれを使い、
-      //  無ければ従来通り自動パレットから順番に割り当てる)
-      const freshStages = (data.stages || []).map((name, i) => ({
-        id: `stage_${i}_${Date.now()}`,
-        name,
-        color: (data.stageColors && data.stageColors[name]) || STAGE_COLORS[i % STAGE_COLORS.length],
-      }));
-      const nameToId = new Map(freshStages.map((s) => [s.name, s.id]));
-      const freshStageAssignment = {};
-      for (const [pagePos, stageName] of Object.entries(data.stageAssignment || {})) {
-        const id = nameToId.get(stageName);
-        if (id) freshStageAssignment[`pos:${pagePos}`] = id;
-      }
-
-      // 履歴から呼び出した場合、保存済みのステージ割り当てが現在のキー形式(pos:数字)と
-      // 互換性があるかを確認する。以前のバージョンで保存された旧形式(名前ベース)の履歴や、
-      // 空の割り当てだと、キーが噛み合わず全員「未振り分け」になってしまうため、
-      // その場合はシートから読み取ったフレッシュな構成にフォールバックする。
-      const pendingAssignmentKeys = pendingStageState && pendingStageState.stageAssignment
-        ? Object.keys(pendingStageState.stageAssignment)
-        : [];
-      const isPendingCompatible = pendingStageState
-        && pendingAssignmentKeys.length > 0
-        && pendingAssignmentKeys.every((k) => k.startsWith('pos:'));
-
-      if (isPendingCompatible) {
-        currentStages = pendingStageState.stages || [];
-        currentStageAssignment = pendingStageState.stageAssignment || {};
-      } else {
-        currentStages = freshStages;
-        currentStageAssignment = freshStageAssignment;
-      }
-      pendingStageState = null;
-      activeStageTabId = currentStages[0] ? currentStages[0].id : 'unassigned';
-      stageModeActive = true;
-      currentPerformerTimes = {};
-      for (const [pagePos, timeRange] of Object.entries(data.performerTimes || {})) {
-        currentPerformerTimes[`pos:${pagePos}`] = timeRange;
-      }
-      currentTimeSlots = data.timeSlots || [];
-      if (currentTimeSlots.length) stageViewMode = 'grid';
-
-      currentNotFound = [];
-      currentEventInfo = data.eventTitle ? { title: data.eventTitle } : null;
-      currentEditUrl = null;
-      currentListQuery = null;
-      currentTimetableUrl = url;
-      currentUnknownOnPage = notFoundEntries.map((n) => n.name);
-      addHistoryEntry('timetable', { url, eventTitle: data.eventTitle || '' });
-      saveTimetableCache({
-        url,
-        eventTitle: data.eventTitle || '',
-        groups: currentGroups,
-        stages: currentStages,
-        stageAssignment: currentStageAssignment,
-        performerTimes: currentPerformerTimes,
-        timeSlots: currentTimeSlots,
-        dbTotal: data.dbTotal,
-      });
-      await restoreSavedEdits(currentTimetableUrl);
-      draw();
+      await applyTimetableResult(data, { sourceKey: url, historyEntry: { url, eventTitle: data.eventTitle || '' } });
     } catch (err) {
       // オフライン等で取得できない場合、端末に保存済みの前回のタイムテーブルがあれば復元する
       const cached = loadTimetableCache();

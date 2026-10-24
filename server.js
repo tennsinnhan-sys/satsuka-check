@@ -775,7 +775,7 @@ post("/api/history/add", async (req, res, env) => {
     const mergedEntry = { ...entry };
     // order/stages/stageAssignment が明示的に送られなかった場合は、既存の保存済み値を引き継ぐ
     // (並べ替えやステージ分けが、通常の再検索のたびに消えてしまわないようにするため)
-    const stickyFields = ["order", "stages", "stageAssignment"];
+    const stickyFields = ["order", "stages", "stageAssignment", "extracted", "source"]; // extracted/source=画像から読み取ったタイムテーブル
     for (const field of stickyFields) {
       if (mergedEntry[field] === undefined && existing && existing[field]) {
         mergedEntry[field] = existing[field];
@@ -1408,6 +1408,68 @@ function parseGoogleSheetsUrl(input) {
   return parsed;
 }
 
+// タイムテーブル(ステージごとの出演者+時間帯)をDBと照合し、画面に返す形にまとめる。
+// スプレッドシート取り込み・画像読み取りの両方で共通に使う。
+// stages: [{ name, performers: [{ name, timeRange: "10:00-10:20" }] }]
+// sortByTime=true の時は、ステージをまたいで開始時刻順に並べる(画像読み取り時。一覧表示でも時間順になる)
+async function matchTimetableAgainstDb(env, { eventTitle, stages, timeSlots, stageColors, sortByTime = false }) {
+  // 全ステージの出演者をまとめてDB照合(ステージをまたいだ重複は稀な前提)
+  const groups = await getGroups(false, env);
+  const allTokens = [];
+  const tokenStageMap = []; // allTokensと同じ並びで、どのステージ名に属するかを記録
+  const tokenTimeMap = []; // allTokensと同じ並びで、時間帯("10:00-10:25")を記録
+  const entries = [];
+  stages.forEach((stage, stageIdx) => {
+    for (const performer of stage.performers) {
+      entries.push({ stageName: stage.name, stageIdx, name: performer.name, timeRange: performer.timeRange });
+    }
+  });
+  if (sortByTime) {
+    const startOf = (tr) => {
+      const m = String(tr || "").match(/^(\d{1,2}):(\d{2})/);
+      return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : Infinity;
+    };
+    entries.sort((a, b) => (startOf(a.timeRange) - startOf(b.timeRange)) || (a.stageIdx - b.stageIdx));
+  }
+  for (const e of entries) {
+    allTokens.push(e.name);
+    tokenStageMap.push(e.stageName);
+    tokenTimeMap.push(e.timeRange);
+  }
+
+  const { matched, notFound } = matchListAgainstGroups(allTokens, groups, { dedupe: false });
+
+  // 照合結果とステージ・時間帯の対応付けは、名前ではなく元のトークンの並び順(pagePos)を
+  // キーにして行う。同じ出演者が複数のステージ・時間帯に出演する(掛け持ち)場合、
+  // 名前をキーにすると2回目以降が1回目を上書きしてしまうため。
+  // 表示名(グループ名)はDBの登録名のまま変更しない。
+  const stageAssignment = {};
+  const performerTimes = {};
+  for (const g of matched) {
+    const stageName = tokenStageMap[g.pagePos];
+    if (stageName) stageAssignment[g.pagePos] = stageName;
+    if (tokenTimeMap[g.pagePos]) performerTimes[g.pagePos] = tokenTimeMap[g.pagePos];
+  }
+  for (const n of notFound) {
+    const stageName = tokenStageMap[n.pagePos];
+    if (stageName) stageAssignment[n.pagePos] = stageName;
+    if (tokenTimeMap[n.pagePos]) performerTimes[n.pagePos] = tokenTimeMap[n.pagePos];
+  }
+
+  return {
+    eventTitle,
+    stages: stages.map((s) => s.name),
+    stageColors,
+    stageAssignment,
+    performerTimes,
+    timeSlots,
+    matchedCount: matched.length,
+    groups: matched,
+    notFound,
+    dbTotal: groups.length,
+  };
+}
+
 post("/api/timetable-import", async (req, res, env) => {
   try {
     const { url } = req.body || {};
@@ -1487,53 +1549,276 @@ post("/api/timetable-import", async (req, res, env) => {
       if (colorsByCol[s.col]) stageColors[s.name] = colorsByCol[s.col];
     }
 
-    // 全ステージの出演者をまとめてDB照合(ステージをまたいだ重複は稀な前提)
-    const groups = await getGroups(false, env);
-    const allTokens = [];
-    const tokenStageMap = []; // allTokensと同じ並びで、どのステージ名に属するかを記録
-    const tokenTimeMap = []; // allTokensと同じ並びで、時間帯("10:00-10:25")を記録
-    for (const stage of stages) {
-      for (const performer of stage.performers) {
-        allTokens.push(performer.name);
-        tokenStageMap.push(stage.name);
-        tokenTimeMap.push(performer.timeRange);
-      }
-    }
-
-    const { matched, notFound } = matchListAgainstGroups(allTokens, groups, { dedupe: false });
-
-    // 照合結果とステージ・時間帯の対応付けは、名前ではなく元のトークンの並び順(pagePos)を
-    // キーにして行う。同じ出演者が複数のステージ・時間帯に出演する(掛け持ち)場合、
-    // 名前をキーにすると2回目以降が1回目を上書きしてしまうため。
-    // 表示名(グループ名)はDBの登録名のまま変更しない。
-    const stageAssignment = {};
-    const performerTimes = {};
-    for (const g of matched) {
-      const stageName = tokenStageMap[g.pagePos];
-      if (stageName) stageAssignment[g.pagePos] = stageName;
-      if (tokenTimeMap[g.pagePos]) performerTimes[g.pagePos] = tokenTimeMap[g.pagePos];
-    }
-    for (const n of notFound) {
-      const stageName = tokenStageMap[n.pagePos];
-      if (stageName) stageAssignment[n.pagePos] = stageName;
-      if (tokenTimeMap[n.pagePos]) performerTimes[n.pagePos] = tokenTimeMap[n.pagePos];
-    }
-
-    res.json({
-      ok: true,
-      eventTitle,
-      stages: stages.map((s) => s.name),
-      stageColors,
-      stageAssignment,
-      performerTimes,
-      timeSlots,
-      matchedCount: matched.length,
-      groups: matched,
-      notFound,
-      dbTotal: groups.length,
-    });
+    const result = await matchTimetableAgainstDb(env, { eventTitle, stages, timeSlots, stageColors });
+    res.json({ ok: true, ...result });
   } catch (e) {
     fail(res, e, "タイムテーブルの取り込みに失敗しました。時間をおいて再度お試しください。");
+  }
+});
+
+
+// ---- タイムテーブル画像の読み取り(Gemini API) ----
+// 告知画像などのタイムテーブルをGeminiに読ませ、ステージ・出演時間・グループ名を取り出す。
+// 取り出した内容はスプレッドシート取り込みと同じ形にして、同じ照合処理(matchTimetableAgainstDb)に流す。
+// APIキーは `npx wrangler secret put GEMINI_API_KEY` で登録する(ローカル開発時は .dev.vars)。
+// モデルは GEMINI_MODEL で上書きでき、未指定なら下の候補を順に試す(提供終了などで404の時だけ次へ)。
+const GEMINI_MODEL_CANDIDATES = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash"];
+const TIMETABLE_IMAGE_MAX_BASE64 = 8 * 1024 * 1024; // 約6MBの画像まで(画面側で縮小してから送る)
+const TIMETABLE_IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+const TIMETABLE_IMAGE_PROMPT = `この画像はアイドルのライブイベントのタイムテーブルです。
+ライブ出演枠だけを読み取り、指定のJSON形式で返してください。
+
+ルール:
+- eventTitle: 画像内のイベント名(日付やDAY表記があれば含める)。分からなければ空文字。
+- stages: ステージ(会場・フロア・ステージ名)ごとに分ける。ステージが1つだけ、または名前が書かれていない場合は name を "メイン" にする。
+- stages[].color: そのステージの見出しやブロックの代表色を "#rrggbb" で。白や判断できない場合は空文字。
+- performers: そのステージのライブ出演枠を時間順に。
+  - start / end: "HH:MM" の24時間表記。深夜0時を過ぎる場合は "24:30" のように24以上で続ける。終了時刻が書かれていなければ end は空文字。
+  - name: グループ名・出演者名を画像の表記どおりに(読み仮名や補足の括弧書きは除く)。複数組の合同枠は表記どおり1つの名前にする。
+- 次のものは出演枠に含めない: 特典会・物販・チェキ会の枠、転換・休憩、OPEN/START/開場/開演、Coming soon/TBA/調整中などの未発表枠、注意書き。
+- 画像に無いものを推測で補わない。読み取れない文字があっても、読めた範囲で返す。`;
+
+const TIMETABLE_IMAGE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    eventTitle: { type: "STRING" },
+    stages: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          name: { type: "STRING" },
+          color: { type: "STRING" },
+          performers: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                start: { type: "STRING" },
+                end: { type: "STRING" },
+                name: { type: "STRING" },
+              },
+              required: ["start", "end", "name"],
+            },
+          },
+        },
+        required: ["name", "color", "performers"],
+      },
+    },
+  },
+  required: ["eventTitle", "stages"],
+};
+
+async function geminiExtractTimetable(base64, mimeType) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new PublicError("画像読み取りの設定がまだです(GEMINI_API_KEY が未登録です)");
+  }
+  const models = process.env.GEMINI_MODEL ? [process.env.GEMINI_MODEL] : GEMINI_MODEL_CANDIDATES;
+  const body = JSON.stringify({
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { inline_data: { mime_type: mimeType, data: base64 } },
+          { text: TIMETABLE_IMAGE_PROMPT },
+        ],
+      },
+    ],
+    generation_config: {
+      response_mime_type: "application/json",
+      response_schema: TIMETABLE_IMAGE_SCHEMA,
+      temperature: 0,
+    },
+  });
+
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body,
+      }
+    );
+    if (resp.status === 404 && i < models.length - 1) {
+      console.warn(`Geminiモデル ${model} が見つからないため次の候補を試します`);
+      continue;
+    }
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      console.error(`Gemini API エラー (HTTP ${resp.status}, model ${model}): ${errText}`);
+      if (resp.status === 429) {
+        throw new PublicError("画像読み取りの利用上限(無料枠)に達しました。しばらく時間をおいてお試しください。");
+      }
+      if (resp.status === 400 || resp.status === 403) {
+        throw new PublicError(`画像読み取りでエラーが発生しました(HTTP ${resp.status})。APIキーの設定をご確認ください。`);
+      }
+      throw new PublicError(`画像読み取りでエラーが発生しました(HTTP ${resp.status})`);
+    }
+    const data = await resp.json();
+    const text = (((data.candidates || [])[0] || {}).content || {}).parts
+      ? data.candidates[0].content.parts.map((p) => p.text || "").join("")
+      : "";
+    if (!text) {
+      console.error("Gemini 応答が空です:", JSON.stringify(data).slice(0, 2000));
+      throw new PublicError("画像からタイムテーブルを読み取れませんでした。");
+    }
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      console.error("Gemini 応答がJSONではありません:", text.slice(0, 2000));
+      throw new PublicError("画像からタイムテーブルを読み取れませんでした。");
+    }
+  }
+  throw new PublicError("画像読み取りに使えるモデルが見つかりませんでした。");
+}
+
+function parseClock(t) {
+  const m = String(t || "").trim().replace(/[：]/g, ":").match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (h > 30 || min > 59) return null;
+  return h * 60 + min;
+}
+
+function formatClock(minutes) {
+  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+const NON_PERFORMANCE_PATTERN =
+  /^(転換|休憩|open|start|開場|開演|終演|特典会|物販|チェキ|comm?ing\s*soon|tba|調整中|未定|\?+|？+)$/i;
+
+// Geminiの読み取り結果(または履歴に保存した読み取り結果)を検証・整形し、
+// スプレッドシート取り込みと同じ { eventTitle, stages, timeSlots, stageColors } の形にする。
+// 時間目盛り(timeSlots)は、全出演枠の開始〜終了を5分刻みで埋め、半端な時刻(12:12等)も含める。
+function normalizeExtractedTimetable(raw) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  const eventTitle = String(src.eventTitle || "").trim().slice(0, 200);
+  const stageList = Array.isArray(src.stages) ? src.stages.slice(0, 30) : [];
+
+  const byName = new Map(); // 同じステージ名が分かれて返ってきた場合は1つにまとめる
+  const stages = [];
+  const stageColors = {};
+  const extracted = { eventTitle, stages: [] }; // 履歴に保存する整形済みの読み取り結果
+  for (let i = 0; i < stageList.length; i++) {
+    const st = stageList[i] || {};
+    const name = String(st.name || "").trim().slice(0, 60) || `ステージ${i + 1}`;
+    const items = byName.has(name) ? byName.get(name).items : [];
+    for (const p of (Array.isArray(st.performers) ? st.performers.slice(0, 200) : [])) {
+      const perfName = String((p && p.name) || "").trim().slice(0, 100);
+      const start = parseClock(p && p.start);
+      if (!perfName || start === null) continue;
+      if (NON_PERFORMANCE_PATTERN.test(perfName.replace(/\s+/g, " "))) continue;
+      let end = parseClock(p && p.end);
+      if (end !== null && end <= start) end = null;
+      items.push({ name: perfName, start, end });
+    }
+    if (byName.has(name)) continue; // 既存ステージに追加済み(並べ替え・整形は最初の登場時の処理でまとめて行う)
+    byName.set(name, { items, color: String(st.color || "").trim() });
+  }
+
+  for (const [name, { items, color }] of byName) {
+    items.sort((a, b) => a.start - b.start);
+    // 終了時刻が無い枠は、同じステージの次の枠の開始まで(最後の枠は20分)とみなす
+    for (let k = 0; k < items.length; k++) {
+      if (items[k].end === null) {
+        const next = items.slice(k + 1).find((it) => it.start > items[k].start);
+        items[k].end = next ? next.start : items[k].start + 20;
+      }
+    }
+    if (items.length === 0) continue;
+
+    if (/^#[0-9a-f]{6}$/i.test(color) && !/^#f[a-f0-9]f[a-f0-9]f[a-f0-9]$/i.test(color)) {
+      stageColors[name] = color.toLowerCase();
+    }
+    stages.push({
+      name,
+      performers: items.map((it) => ({ name: it.name, timeRange: `${formatClock(it.start)}-${formatClock(it.end)}` })),
+    });
+    extracted.stages.push({
+      name,
+      color: stageColors[name] || "",
+      performers: items.map((it) => ({ start: formatClock(it.start), end: formatClock(it.end), name: it.name })),
+    });
+  }
+
+  const marks = new Set();
+  let minStart = Infinity;
+  let maxEnd = -Infinity;
+  for (const st of extracted.stages) {
+    for (const p of st.performers) {
+      const a = parseClock(p.start);
+      const b = parseClock(p.end);
+      marks.add(a);
+      marks.add(b);
+      minStart = Math.min(minStart, a);
+      maxEnd = Math.max(maxEnd, b);
+    }
+  }
+  if (Number.isFinite(minStart)) {
+    for (let t = Math.floor(minStart / 5) * 5; t <= maxEnd; t += 5) marks.add(t);
+  }
+  const timeSlots = [...marks].sort((a, b) => a - b).map(formatClock);
+
+  return { eventTitle, stages, timeSlots, stageColors, extracted };
+}
+
+async function hashExtracted(extracted) {
+  const enc = new TextEncoder().encode(JSON.stringify(extracted));
+  const digest = await crypto.subtle.digest("SHA-256", enc);
+  return Array.from(new Uint8Array(digest).slice(0, 8))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function respondWithExtracted(res, env, raw) {
+  const normalized = normalizeExtractedTimetable(raw);
+  if (normalized.stages.length === 0) {
+    return res.status(400).json({
+      ok: false,
+      error: "画像からライブの出演枠を読み取れませんでした。タイムテーブル全体が写った、文字がはっきり読める画像でお試しください。",
+    });
+  }
+  const result = await matchTimetableAgainstDb(env, { ...normalized, sortByTime: true });
+  // 履歴・当日レギュ変更・端末キャッシュの識別に使うキー(読み取り内容が同じなら同じキーになる)
+  const sourceKey = `image:${await hashExtracted(normalized.extracted)}`;
+  res.json({ ok: true, ...result, extracted: normalized.extracted, sourceKey });
+}
+
+// 画像を受け取り、Geminiで読み取ってからDBと照合する
+post("/api/timetable-image", async (req, res, env) => {
+  try {
+    const { image, mimeType } = req.body || {};
+    if (typeof image !== "string" || !image) {
+      return res.status(400).json({ ok: false, error: "画像が送られていません" });
+    }
+    if (!TIMETABLE_IMAGE_MIME_TYPES.includes(mimeType)) {
+      return res.status(400).json({ ok: false, error: "JPEG・PNG・WebPの画像を選んでください" });
+    }
+    if (image.length > TIMETABLE_IMAGE_MAX_BASE64 || !/^[A-Za-z0-9+/]+=*$/.test(image)) {
+      return res.status(400).json({ ok: false, error: "画像が大きすぎるか、形式が正しくありません" });
+    }
+    const raw = await geminiExtractTimetable(image, mimeType);
+    await respondWithExtracted(res, env, raw);
+  } catch (e) {
+    fail(res, e, "画像の読み取りに失敗しました。時間をおいて再度お試しください。");
+  }
+});
+
+// 履歴から呼び出した時用: 保存済みの読み取り結果で、DB照合だけをやり直す(Geminiは呼ばない)
+post("/api/timetable-extracted", async (req, res, env) => {
+  try {
+    const { extracted } = req.body || {};
+    if (!extracted || typeof extracted !== "object") {
+      return res.status(400).json({ ok: false, error: "読み取り結果がありません" });
+    }
+    await respondWithExtracted(res, env, extracted);
+  } catch (e) {
+    fail(res, e, "タイムテーブルの照合に失敗しました。時間をおいて再度お試しください。");
   }
 });
 
