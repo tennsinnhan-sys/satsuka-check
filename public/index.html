@@ -1449,6 +1449,16 @@
     color: var(--flash);
     border-color: var(--flash);
   }
+  /* グループ名コピーボタン(リンクボタンと同じ見た目で、<button>の既定スタイルだけ打ち消す) */
+  .copy-name-btn {
+    background: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .copy-name-btn.copied {
+    color: var(--ok);
+    border-color: var(--ok);
+  }
 
   .empty {
     text-align: center;
@@ -3120,6 +3130,52 @@
     return `<span class="checked-date${stale ? ' stale' : ''}" title="レギュ確認日${stale ? '(半年以上前・要再確認)' : ''}">${text}</span>`;
   }
 
+  // グループ名をクリップボードにコピーするボタン(カード詳細・詳細モーダル共通)
+  function renderCopyNameButton(name) {
+    return `<button type="button" class="link-btn copy-name-btn" data-copy-name="${escapeAttr(name)}">📋 名前をコピー</button>`;
+  }
+
+  async function copyTextToClipboard(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) { /* 下の方法で再挑戦 */ }
+    // Clipboard APIが使えない環境向けの予備手段
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.top = '-1000px';
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, text.length);
+      const ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // ボタンは描画のたびに作り直されるため、document側でまとめてクリックを受ける
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest && e.target.closest('.copy-name-btn');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const ok = await copyTextToClipboard(btn.dataset.copyName || '');
+    btn.classList.toggle('copied', ok);
+    btn.textContent = ok ? '✓ コピーしました' : 'コピーできませんでした';
+    clearTimeout(btn._copyTimer);
+    btn._copyTimer = setTimeout(() => {
+      btn.classList.remove('copied');
+      btn.textContent = '📋 名前をコピー';
+    }, 1500);
+  });
+
   function isUrl(s) {
     return typeof s === 'string' && /^https?:\/\//i.test(s);
   }
@@ -3290,7 +3346,7 @@
           </div>
           ${showQueryNote ? `<div class="query-note">入力: 「${escapeHtml(g.query)}」に近い名前で一致(表記ゆれの可能性)</div>` : ''}
           ${g.note ? `<div class="note">${escapeHtml(g.note)}</div>` : ''}
-          ${links.length ? `<div class="links">${links.map((l) => `<a class="link-btn" href="${escapeAttr(l.href)}" target="_blank" rel="noopener noreferrer">${l.label} ↗</a>`).join('')}</div>` : ''}
+          <div class="links">${renderCopyNameButton(g.name)}${links.map((l) => `<a class="link-btn" href="${escapeAttr(l.href)}" target="_blank" rel="noopener noreferrer">${l.label} ↗</a>`).join('')}</div>
 
         </div>` : ''}
       </div>
@@ -4244,7 +4300,7 @@
     detailModalBody.innerHTML = `
       ${showQueryNote ? `<div class="query-note">入力: 「${escapeHtml(g.query)}」に近い名前で一致(表記ゆれの可能性)</div>` : ''}
       ${g.note ? `<div class="note">${escapeHtml(g.note)}</div>` : ''}
-      ${links.length ? `<div class="links">${links.map((l) => `<a class="link-btn" href="${escapeAttr(l.href)}" target="_blank" rel="noopener noreferrer">${l.label} ↗</a>`).join('')}</div>` : ''}
+      <div class="links">${renderCopyNameButton(g.name)}${links.map((l) => `<a class="link-btn" href="${escapeAttr(l.href)}" target="_blank" rel="noopener noreferrer">${l.label} ↗</a>`).join('')}</div>
       ${!showQueryNote && !g.note && links.length === 0 ? `<div class="modal-hint">表示できる情報がありません</div>` : ''}
     `;
     detailModal.classList.add('show');
