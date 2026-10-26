@@ -328,6 +328,14 @@ function mergeKnownSplitNames(tokens, groups) {
 }
 
 // グループ名・読み仮名・別名の索引を1回だけ作る(正規化も1回だけ計算しておく)
+// 別名照合用のゆるい比較キー。スペース・ハイフン・中黒・ピリオド等の有無や種類の違いを無視する。
+// 例: Notionの別名「UPDANCE Lily-Team A-」と、チケットサイト上の「UPDANCE Lily TeamA」を同じものとみなす。
+function aliasKey(s) {
+  return normalizeStr(s)
+    .toLowerCase()
+    .replace(/[\s\-\u2010-\u2015\u2212_\u30FB\uFF65\u00B7.]/g, "");
+}
+
 function buildGroupIndex(groups) {
   const byName = new Map();
   const byNameNoSpace = new Map();
@@ -349,8 +357,8 @@ function buildGroupIndex(groups) {
 
     if (g.aliases && g.aliases.length) {
       for (const alias of g.aliases) {
-        const normAlias = normalizeStr(alias).toLowerCase();
-        if (normAlias && !byAlias.has(normAlias)) byAlias.set(normAlias, g);
+        const key = aliasKey(alias);
+        if (key && !byAlias.has(key)) byAlias.set(key, g);
       }
     }
 
@@ -448,7 +456,7 @@ function matchListAgainstGroups(tokens, groups, options = {}) {
     // 2b) 別名(Notionの「別名」欄に登録した表記ゆれ)との完全一致
     //     例: 「UPDANCE Lily-Team A-」を「UPDANCE Lily」として登録しておく
     if (!match) {
-      match = index.byAlias.get(normToken);
+      match = index.byAlias.get(aliasKey(normToken));
       matchType = "exact-alias";
     }
 
@@ -1147,8 +1155,8 @@ post("/api/lookup", async (req, res, env) => {
     for (const g of groups) {
       if (!g.aliases) continue;
       for (const alias of g.aliases) {
-        const normAlias = normalizeStr(alias).toLowerCase();
-        if (normAlias && !dbAliasMap.has(normAlias)) dbAliasMap.set(normAlias, g);
+        const key = aliasKey(alias);
+        if (key && !dbAliasMap.has(key)) dbAliasMap.set(key, g);
       }
     }
     const unknownOnPage = [];
@@ -1165,7 +1173,7 @@ post("/api/lookup", async (req, res, env) => {
       // 別名(Notionの「別名」欄)に一致する場合、ページ全体からの検索(1件にまとまってしまう)
       // ではなく、この候補(例: 「UPDANCE Lily-Team A-」)の表記そのままで1件のカードにする。
       // 同じグループの別名違いが複数ページに出てきても、それぞれ別々に表示できるようにするため。
-      const aliasGroup = dbAliasMap.get(norm);
+      const aliasGroup = dbAliasMap.get(aliasKey(norm));
       if (aliasGroup) {
         uniqueMap.delete(aliasGroup.name); // ページ全体検索で先に登録された「まとめ」表示があれば消す
         uniqueMap.set(c, { ...aliasGroup, name: c, pagePos });
